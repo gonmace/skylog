@@ -1,12 +1,11 @@
 # ── Stage 1: compilar CSS con Node ────────────────────────────────────────────
 FROM node:22-slim AS css-builder
 
+# Copiar todo el proyecto para que Tailwind pueda escanear los templates
+COPY . /app/
+
 WORKDIR /app/theme/static_src
-
-COPY theme/static_src/package.json ./
 RUN npm install
-
-COPY theme/static_src/ ./
 RUN npm run build
 
 # ── Stage 2: imagen Python de producción ──────────────────────────────────────
@@ -19,7 +18,6 @@ ENV DJANGO_SETTINGS_MODULE=core.settings
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    netcat-openbsd \
     libpq-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
@@ -30,8 +28,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./ ./
 
 # Copiar el CSS compilado desde el stage anterior
-COPY --from=css-builder /app/theme/static/css/dist/ ./theme/static/css/dist/
-
-RUN python manage.py collectstatic --noinput
+COPY --from=css-builder /app/static/css/dist/ ./static/css/dist/
 
 CMD ["sh", "entrypoint.sh"]

@@ -44,10 +44,13 @@ collect:
 deploy:
 	bash deploy.sh
 
+nginx:
+	bash nginx-deploy.sh
+
 logs:
 	docker compose logs -f django
 
 down:
 	docker compose down
 
-.PHONY: dev-up dev-down dev-logs n8n-export install dev tailwind migrate migrations shell superuser collect deploy logs down
+.PHONY: dev-up dev-down dev-logs n8n-export install dev tailwind migrate migrations shell superuser collect deploy nginx logs down

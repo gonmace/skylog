@@ -2,4 +2,60 @@
 @source not "../static";
 @source "../../../templates";
 @source "../../../home";
-@plugin "daisyui";
+@plugin "@tailwindcss/forms";
+@plugin "@tailwindcss/typography";
+@plugin "daisyui" {
+  themes: light --default, dark --prefersdark;
+}
+
+/* ── Light theme ─────────────────────────────────────────────────────────── */
+@plugin "daisyui/theme" {
+  name: "light";
+  color-scheme: light;
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(90% 0 0);
+  --color-base-300: oklch(80% 0 0);
+  --color-base-content: #000;
+  --color-primary: #6366f1;
+  --color-primary-content: #fff;
+  --color-secondary: #45484d;
+  --color-secondary-content: #fff;
+  --color-accent: #0ea5e9;
+  --color-accent-content: #fff;
+  --color-neutral: #45484d;
+  --color-neutral-content: oklch(92% 0.004 286.32);
+  --color-info: #0ea5e9;
+  --color-info-content: #fff;
+  --color-success: #10b981;
+  --color-success-content: #fff;
+  --color-warning: #f59e0b;
+  --color-warning-content: #fff;
+  --color-error: #ea580c;
+  --color-error-content: #fff;
+}
+
+/* ── Dark theme ──────────────────────────────────────────────────────────── */
+@plugin "daisyui/theme" {
+  name: "dark";
+  color-scheme: dark;
+  --color-base-100: #3a3a3e;
+  --color-base-200: #2e2e32;
+  --color-base-300: #4a4a50;
+  --color-base-content: #e8e8ed;
+  --color-primary: #818cf8;
+  --color-primary-content: #fff;
+  --color-secondary: #8e8e93;
+  --color-secondary-content: #fff;
+  --color-accent: #38bdf8;
+  --color-accent-content: #fff;
+  --color-neutral: #3a3a3c;
+  --color-neutral-content: #f5f5f7;
+  --color-info: #38bdf8;
+  --color-info-content: #fff;
+  --color-success: #34d399;
+  --color-success-content: #fff;
+  --color-warning: #fbbf24;
+  --color-warning-content: #000;
+  --color-error: #fb923c;
+  --color-error-content: #fff;
+}

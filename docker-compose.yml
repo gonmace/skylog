@@ -38,7 +38,7 @@ services:
     container_name: ${PROJECT_NAME}_n8n
     restart: always
     ports:
-      - "5678:5678"
+      - "${N8N_HOST_PORT:-5680}:5678"
     environment:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
@@ -47,7 +47,7 @@ services:
       DB_POSTGRESDB_USER: ${POSTGRES_USER}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      GENERIC_TIMEZONE: ${TIME_ZONE:-America/Santiago}
+      GENERIC_TIMEZONE: ${TIME_ZONE:-America/La_Paz}
       N8N_HOST: ${DOMAIN}
       N8N_PORT: 5678
       N8N_PROTOCOL: https
