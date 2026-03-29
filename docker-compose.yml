@@ -5,7 +5,8 @@ services:
     env_file:
       - .env
     volumes:
-      - postgres_data:/var/lib/postgresql/data/
+      - ./db:/var/lib/postgresql/data/
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     networks:
       - app_network
     healthcheck:
@@ -34,11 +35,15 @@ services:
       - app_network
 
   n8n:
-    image: n8nio/n8n:latest
+    profiles: [n8n]
+    build:
+      context: .
+      dockerfile: docker/n8n.Dockerfile
+    image: ${PROJECT_NAME}_n8n:latest
     container_name: ${PROJECT_NAME}_n8n
     restart: always
     ports:
-      - "${N8N_HOST_PORT:-5680}:5678"
+      - "5680:5678"
     environment:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
@@ -48,25 +53,25 @@ services:
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       GENERIC_TIMEZONE: ${TIME_ZONE:-America/La_Paz}
-      N8N_HOST: ${DOMAIN}
+      N8N_HOST: ${N8N_DOMAIN}
       N8N_PORT: 5678
       N8N_PROTOCOL: https
-      N8N_PATH: /n8n/
-      N8N_EDITOR_BASE_URL: https://${DOMAIN}/n8n/
-      WEBHOOK_URL: https://${DOMAIN}/n8n/
+      N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN}/
+      WEBHOOK_URL: https://${N8N_DOMAIN}/
       N8N_IMPORT_ACTIVE: "true"
+      N8N_TRUST_PROXY: "true"
+      N8N_PROXY_HOPS: "1"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_LOG_LEVEL: warn
+      OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: "false"
     volumes:
-      - n8n_data:/home/node/.n8n
+      - ./volumes/n8n:/home/node/.n8n
       - ./n8n/workflows:/home/node/.n8n/workflows-import:ro
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - app_network
-
-volumes:
-  postgres_data:
-  n8n_data:
 
 networks:
   app_network:

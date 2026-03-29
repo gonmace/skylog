@@ -16,6 +16,7 @@ set +a
 PROJECT_NAME=${PROJECT_NAME:?La variable PROJECT_NAME no está definida en .env}
 APP_PORT=${APP_PORT:-8000}
 DOMAIN=${DOMAIN:?La variable DOMAIN no está definida en .env}
+N8N_DOMAIN=${N8N_DOMAIN:-}
 
 echo "━━━ Desplegando: ${PROJECT_NAME} (${DOMAIN}) ━━━"
 
@@ -23,10 +24,24 @@ echo "━━━ Desplegando: ${PROJECT_NAME} (${DOMAIN}) ━━━"
 echo "▶ Actualizando código..."
 git pull origin main
 
-# ── 2. Reconstruir y reiniciar contenedores ────────────────────────────────────
+# ── 2. Permisos del volumen n8n (corre como UID 1000 = node) ──────────────────
+if [ -n "${N8N_DOMAIN}" ]; then
+    echo "▶ Ajustando permisos de n8n..."
+    mkdir -p volumes/n8n
+    sudo chown -R 1000:1000 volumes/n8n
+fi
+
+# ── 3. Reconstruir y reiniciar contenedores ────────────────────────────────────
 echo "▶ Reconstruyendo contenedores Docker..."
 docker compose down
-docker compose up -d --build
+
+if [ -n "${N8N_DOMAIN}" ]; then
+    echo "  n8n habilitado (${N8N_DOMAIN})"
+    docker compose --profile n8n up -d --build
+else
+    echo "  n8n deshabilitado (N8N_DOMAIN no definido)"
+    docker compose up -d --build
+fi
 
 echo ""
 echo "✓ Despliegue completado → http://${DOMAIN}"

@@ -17,8 +17,8 @@ set +a
 PROJECT_NAME=${PROJECT_NAME:?La variable PROJECT_NAME no está definida en .env}
 APP_PORT=${APP_PORT:-8000}
 DOMAIN=${DOMAIN:?La variable DOMAIN no está definida en .env}
-N8N_HOST_PORT=${N8N_HOST_PORT:-5680}
 PROJECT_DIR=$(pwd)
+N8N_DOMAIN=${N8N_DOMAIN:-}
 
 NGINX_TEMPLATE="${PROJECT_NAME}.conf"
 NGINX_AVAILABLE="/etc/nginx/sites-available/${PROJECT_NAME}.conf"
@@ -27,9 +27,14 @@ NGINX_ENABLED="/etc/nginx/sites-enabled/${PROJECT_NAME}.conf"
 echo "▶ Generando ${NGINX_TEMPLATE}..."
 sed -e "s|{{DOMAIN}}|${DOMAIN}|g" \
     -e "s|{{APP_PORT}}|${APP_PORT}|g" \
-    -e "s|{{N8N_HOST_PORT}}|${N8N_HOST_PORT}|g" \
     -e "s|{{PROJECT_DIR}}|${PROJECT_DIR}|g" \
     nginx.conf > "${NGINX_TEMPLATE}"
+
+if [ -n "${N8N_DOMAIN}" ]; then
+    echo "  Incluyendo bloque n8n (${N8N_DOMAIN})..."
+    sed -e "s|{{N8N_DOMAIN}}|${N8N_DOMAIN}|g" \
+        nginx-n8n.conf >> "${NGINX_TEMPLATE}"
+fi
 
 echo "▶ Instalando config en nginx..."
 sudo cp "${NGINX_TEMPLATE}" "${NGINX_AVAILABLE}"

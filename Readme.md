@@ -1,6 +1,6 @@
 # Django Skeleton
 
-Esqueleto base para proyectos Django con Tailwind v4 + DaisyUI v5, listo para desarrollo local y despliegue en producción con Docker + PostgreSQL + n8n.
+Esqueleto base para proyectos Django con Tailwind v4 + DaisyUI v5, listo para desarrollo local y despliegue en producción con Docker + PostgreSQL. n8n es opcional.
 
 ## Stack
 
@@ -8,7 +8,7 @@ Esqueleto base para proyectos Django con Tailwind v4 + DaisyUI v5, listo para de
 - **Base de datos:** SQLite (dev local) / PostgreSQL 17 (dev Docker y prod)
 - **Estilos:** Tailwind CSS v4 + DaisyUI v5
 - **Archivos estáticos:** Whitenoise
-- **Automatización:** n8n (disponible en `/n8n/` en producción)
+- **Automatización:** n8n (opcional, subdominio propio en producción)
 - **Seguridad:** django-axes, django-csp, headers HTTP
 - **Producción:** Docker Compose + Nginx (gzip)
 
@@ -40,16 +40,21 @@ Esqueleto base para proyectos Django con Tailwind v4 + DaisyUI v5, listo para de
 │   └── workflows/              # Workflows exportados (versionados en git)
 ├── docker/
 │   ├── init-db.sql             # Crea la base de datos de n8n en postgres
+│   ├── n8n.Dockerfile          # Imagen custom n8n con Python 3.12
 │   └── n8n-export.sh           # Script de exportación de workflows
+├── volumes/            # Bind mounts de producción (generado, no versionado)
+├── db/                 # Datos PostgreSQL de producción (generado, no versionado)
 ├── staticfiles/        # Salida de collectstatic (generado)
 ├── media/              # Uploads de usuarios (generado)
 ├── requirements.txt        # Dependencias de producción
 ├── requirements-dev.txt    # Dependencias de desarrollo
 ├── Dockerfile          # Multi-stage: Node (CSS) + Python
-├── docker-compose.yml      # Producción: Django + PostgreSQL + n8n
+├── docker-compose.yml      # Producción: Django + PostgreSQL (+ n8n con profile)
 ├── docker-compose.dev.yml  # Desarrollo: PostgreSQL + n8n
 ├── entrypoint.sh       # Migraciones + Gunicorn
-├── nginx.conf          # Plantilla nginx con gzip
+├── nginx.conf          # Plantilla nginx — bloque Django
+├── nginx-n8n.conf      # Plantilla nginx — bloque n8n (usado si N8N_DOMAIN está definido)
+├── nginx-deploy.sh     # Instala/actualiza config de nginx
 ├── deploy.sh           # Script de despliegue en VPS
 └── Makefile
 ```
@@ -132,7 +137,7 @@ git push
 make deploy
 ```
 
-En producción, n8n está disponible en `https://tudominio.com/n8n/`.
+En producción, n8n corre en su propio subdominio: `https://proyecto-n8n.tudominio.com`.
 
 ## Producción (VPS)
 
@@ -157,32 +162,54 @@ SECRET_KEY=una-clave-secreta-segura
 POSTGRES_DB=miproyecto_db
 POSTGRES_USER=miproyecto_user
 POSTGRES_PASSWORD=contraseña-segura
-
-N8N_ENCRYPTION_KEY=clave-larga-y-secreta
-
 ```
+
+Para habilitar n8n, añadir también:
+
+```env
+N8N_ENCRYPTION_KEY=clave-larga-y-secreta
+N8N_DOMAIN=proyecto-n8n.tudominio.com
+N8N_BASE_URL=https://proyecto-n8n.tudominio.com
+```
+
+> Si `N8N_DOMAIN` no está definido, el contenedor n8n no se levanta y el bloque nginx de n8n no se genera. No es necesario eliminar nada del proyecto — simplemente omitir esas variables.
 
 > `N8N_ENCRYPTION_KEY` debe mantenerse constante — cambiarla invalida todas las credenciales guardadas en n8n.
 
-### 2. Desplegar
+### 2. Configurar nginx (primera vez)
+
+```bash
+make nginx
+```
+
+El script `nginx-deploy.sh`:
+1. Genera `{PROJECT_NAME}.conf` a partir de `nginx.conf`
+2. Si `N8N_DOMAIN` está definido, agrega el bloque de n8n desde `nginx-n8n.conf`
+3. Copia la config a `/etc/nginx/sites-available/` y crea el symlink
+4. Valida y recarga nginx
+
+> Solo ejecutar cuando cambie `nginx.conf`/`nginx-n8n.conf` o en el primer deploy. No se ejecuta en cada `make deploy` para no sobreescribir la config de Certbot.
+
+### 3. SSL con Certbot (primera vez)
+
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d tudominio.com -d www.tudominio.com
+
+# Si n8n está habilitado:
+sudo certbot --nginx -d proyecto-n8n.tudominio.com
+```
+
+### 4. Desplegar
 
 ```bash
 make deploy
 ```
 
-El script hace automáticamente:
+El script `deploy.sh`:
 1. `git pull` para actualizar el código
-2. Genera `{PROJECT_NAME}.conf` a partir de `nginx.conf`
-3. Copia la config a `/etc/nginx/sites-available/` y crea el symlink
-4. Valida y recarga nginx
-5. Reconstruye los contenedores Docker (el Dockerfile compila el CSS con Node)
-
-### 3. SSL con Certbot (manual, primera vez)
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d tudominio.com -d www.tudominio.com
-```
+2. Si `N8N_DOMAIN` está definido: ajusta permisos del volumen n8n y activa el profile
+3. Reconstruye y reinicia los contenedores Docker (el Dockerfile compila el CSS con Node)
 
 ## Settings
 
@@ -214,6 +241,7 @@ make migrate      # python manage.py migrate
 make migrations   # python manage.py makemigrations
 make superuser    # python manage.py createsuperuser
 make collect      # collectstatic
+make nginx        # instala/actualiza config de nginx (primera vez)
 make deploy       # bash deploy.sh
 make logs         # docker compose logs -f django
 make down         # docker compose down

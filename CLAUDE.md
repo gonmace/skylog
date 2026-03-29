@@ -66,11 +66,13 @@ Single `core/settings.py` — no separate dev/prod files. Behavior adapts via en
 
 **Admin URL** is randomized via `ADMIN_URL` env var (default: `admin/`). Exposed in `robots.txt` via template context.
 
-**n8n:**
-- Dev: `docker-compose.dev.yml` levanta PostgreSQL (puerto 5432 expuesto) + n8n en `http://localhost:5678`
-- Prod: n8n corre en el mismo `docker-compose.yml` accesible en `https://dominio.com/n8n/`
+**n8n (opcional):**
+- n8n es opcional — se activa definiendo `N8N_DOMAIN` en `.env`. Si no está definido, no se levanta ningún contenedor n8n.
+- Dev: `docker-compose.dev.yml` levanta PostgreSQL (puerto `POSTGRES_HOST_PORT` expuesto) + n8n en `http://localhost:5678`
+- Prod: n8n usa Docker Compose profile `n8n` — `deploy.sh` lo activa automáticamente si `N8N_DOMAIN` está definido en `.env`
+- Imagen custom con Python 3.12 (`docker/n8n.Dockerfile`), subdominio propio, volumen bind mount `./volumes/n8n`
 - n8n usa la misma instancia de PostgreSQL con una base de datos separada (`n8n`), creada por `docker/init-db.sql`
 - Los workflows se exportan con `make n8n-export` a `n8n/workflows/` y se importan automáticamente en producción al arrancar el contenedor
 - `N8N_ENCRYPTION_KEY` debe mantenerse constante en cada entorno — cambiarla invalida las credenciales guardadas
 
-**Production:** Docker Compose + Gunicorn (`entrypoint.sh`) + Nginx (`nginx.conf` template con placeholders `{{DOMAIN}}`, `{{APP_PORT}}`, `{{PROJECT_DIR}}` reemplazados por `deploy.sh`). CSS compilado en Dockerfile multi-stage (Node → Python). Nginx proxea `/n8n/` a n8n con soporte WebSocket.
+**Production:** Docker Compose + Gunicorn (`entrypoint.sh`) + Nginx. Templates: `nginx.conf` (Django, siempre) + `nginx-n8n.conf` (n8n, solo si `N8N_DOMAIN` está definido), concatenados por `nginx-deploy.sh`. CSS compilado en Dockerfile multi-stage (Node → Python).
