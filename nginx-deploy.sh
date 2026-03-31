@@ -66,6 +66,10 @@ if [ ! -L "${NGINX_ENABLED}" ]; then
     echo "  Symlink creado: ${NGINX_ENABLED}"
 fi
 
+# Permitir que nginx (www-data) traversse el directorio del proyecto
+# (los home directories suelen ser 750 — nginx no puede entrar sin o+x)
+chmod o+x "$HOME"
+
 sudo nginx -t
 sudo systemctl reload nginx
 echo "✓ nginx actualizado y recargado."
