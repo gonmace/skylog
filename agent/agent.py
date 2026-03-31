@@ -311,7 +311,7 @@ def ws_thread():
             continue
 
         ws_url = server_url.replace('https://', 'wss://').replace('http://', 'ws://')
-        ws_url = f'{ws_url}/ws/agent/?token={token}'
+        ws_url = f'{ws_url}/ws/agent/?token={token}&version={AGENT_VERSION}'
 
         connected = threading.Event()
 

@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 class AgentConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
-        user, employee = await database_sync_to_async(get_user_from_ws_scope)(self.scope)
+        user, employee, version = await database_sync_to_async(get_user_from_ws_scope)(self.scope)
 
         if isinstance(user, AnonymousUser) or employee is None:
             log.warning('WS rechazado: token inválido o sin perfil de empleado')
@@ -29,9 +29,9 @@ class AgentConsumer(AsyncWebsocketConsumer):
         self.group_name = f'agent_{employee.pk}'
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
-        await database_sync_to_async(self._set_online)(True)
+        await database_sync_to_async(self._set_online)(True, version)
         await self.accept()
-        log.info('Agente WS conectado: employee_id=%s', self.employee_id)
+        log.info('Agente WS conectado: employee_id=%s version=%s', self.employee_id, version or '?')
 
     async def disconnect(self, close_code):
         if hasattr(self, 'group_name'):
@@ -39,9 +39,12 @@ class AgentConsumer(AsyncWebsocketConsumer):
             await database_sync_to_async(self._set_online)(False)
             log.info('Agente WS desconectado: employee_id=%s code=%s', self.employee_id, close_code)
 
-    def _set_online(self, online: bool):
+    def _set_online(self, online: bool, version: str = ''):
         from employees.models import Employee
-        Employee.objects.filter(pk=self.employee_id).update(agent_online=online)
+        fields = {'agent_online': online}
+        if online and version:
+            fields['agent_version'] = version
+        Employee.objects.filter(pk=self.employee_id).update(**fields)
 
     async def receive(self, text_data):
         # Los agentes no envían comandos al servidor por WS.

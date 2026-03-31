@@ -20,15 +20,16 @@ def get_user_from_ws_scope(scope):
     token_list = params.get('token', [])
 
     if not token_list:
-        return AnonymousUser(), None
+        return AnonymousUser(), None, ''
 
     raw_token = token_list[0]
+    version = params.get('version', [''])[0]
     try:
         validated = AccessToken(raw_token)
         user_id = validated['user_id']
         user = User.objects.select_related('employee').get(pk=user_id)
         employee = getattr(user, 'employee', None)
-        return user, employee
+        return user, employee, version
     except (TokenError, InvalidToken, User.DoesNotExist) as e:
         log.debug('WS JWT auth failed: %s', e)
-        return AnonymousUser(), None
+        return AnonymousUser(), None, ''
