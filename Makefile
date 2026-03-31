@@ -1,4 +1,4 @@
-# ── Docker de desarrollo (PostgreSQL + n8n) ───────────────────────────────────
+# ── Docker de desarrollo (PostgreSQL + Redis) ─────────────────────────────────
 dev-up:
 	docker compose -f docker-compose.dev.yml up -d
 
@@ -8,9 +8,9 @@ dev-down:
 dev-logs:
 	docker compose -f docker-compose.dev.yml logs -f
 
-# ── n8n ───────────────────────────────────────────────────────────────────────
-n8n-export:
-	bash docker/n8n-export.sh
+# ── n8n (deshabilitado) ───────────────────────────────────────────────────────
+# n8n-export:
+# 	bash docker/n8n-export.sh
 
 # ── Django local ──────────────────────────────────────────────────────────────
 install:
@@ -53,4 +53,4 @@ logs:
 down:
 	docker compose down
 
-.PHONY: dev-up dev-down dev-logs n8n-export install dev tailwind migrate migrations shell superuser collect deploy nginx logs down
+.PHONY: dev-up dev-down dev-logs install dev tailwind migrate migrations shell superuser collect deploy nginx logs down

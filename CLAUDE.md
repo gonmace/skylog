@@ -68,7 +68,7 @@ Single `core/settings.py` — no separate dev/prod files. Behavior adapts via en
 
 **n8n (opcional):**
 - n8n es opcional — se activa definiendo `N8N_DOMAIN` en `.env`. Si no está definido, no se levanta ningún contenedor n8n.
-- Dev: `docker-compose.dev.yml` levanta PostgreSQL (puerto `POSTGRES_HOST_PORT` expuesto) + n8n en `http://localhost:5678`
+- Dev: `docker-compose.dev.yml` levanta PostgreSQL (puerto `POSTGRES_PORT` expuesto en el host) + n8n en `http://localhost:5678`
 - Prod: n8n usa Docker Compose profile `n8n` — `deploy.sh` lo activa automáticamente si `N8N_DOMAIN` está definido en `.env`
 - Imagen custom con Python 3.12 (`docker/n8n.Dockerfile`), subdominio propio, volumen bind mount `./volumes/n8n`
 - n8n usa la misma instancia de PostgreSQL con una base de datos separada (`n8n`), creada por `docker/init-db.sql`

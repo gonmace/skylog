@@ -2,25 +2,31 @@
 @source not "../static";
 @source "../../../templates";
 @source "../../../home";
+@source "../../../employees";
+@source "../../../workdays";
+@source "../../../screenshots";
+@source "../../../authentication";
 @plugin "@tailwindcss/forms";
 @plugin "@tailwindcss/typography";
 @plugin "daisyui" {
-  themes: light --default, dark --prefersdark;
+  themes: sky-dark --default, sky;
 }
 
 /* ── Light theme ─────────────────────────────────────────────────────────── */
 @plugin "daisyui/theme" {
-  name: "light";
+  name: "sky";
+  default: false;
+  prefersdark: false;
   color-scheme: light;
   --color-base-100: oklch(100% 0 0);
   --color-base-200: oklch(90% 0 0);
   --color-base-300: oklch(80% 0 0);
   --color-base-content: #000;
-  --color-primary: #6366f1;
+  --color-primary: #ff0000;
   --color-primary-content: #fff;
   --color-secondary: #45484d;
   --color-secondary-content: #fff;
-  --color-accent: #0ea5e9;
+  --color-accent: #6366f1;
   --color-accent-content: #fff;
   --color-neutral: #45484d;
   --color-neutral-content: oklch(92% 0.004 286.32);
@@ -32,21 +38,32 @@
   --color-warning-content: #fff;
   --color-error: #ea580c;
   --color-error-content: #fff;
+
+  --color-edit: #eab308;
+  --color-edit-content: #fff;
+  --color-delete: #f97316;
+  --color-delete-content: #fff;
+  --color-view: #3b82f6;
+  --color-view-content: #fff;
+  --color-copy: #06b6d4;
+  --color-copy-content: #fff;
 }
 
 /* ── Dark theme ──────────────────────────────────────────────────────────── */
 @plugin "daisyui/theme" {
-  name: "dark";
+  name: "sky-dark";
+  default: true;
+  prefersdark: true;
   color-scheme: dark;
-  --color-base-100: #3a3a3e;
-  --color-base-200: #2e2e32;
-  --color-base-300: #4a4a50;
-  --color-base-content: #e8e8ed;
-  --color-primary: #818cf8;
+  --color-base-100: #f4f4f6;
+  --color-base-200: #393939;
+  --color-base-300: #e4e4e8;
+  --color-base-content: #1c1c1e;
+  --color-primary: #ff3b30;
   --color-primary-content: #fff;
   --color-secondary: #8e8e93;
   --color-secondary-content: #fff;
-  --color-accent: #38bdf8;
+  --color-accent: #818cf8;
   --color-accent-content: #fff;
   --color-neutral: #3a3a3c;
   --color-neutral-content: #f5f5f7;
@@ -58,4 +75,377 @@
   --color-warning-content: #000;
   --color-error: #fb923c;
   --color-error-content: #fff;
+
+  --color-edit: #facc15;
+  --color-edit-content: #000;
+  --color-delete: #fb923c;
+  --color-delete-content: #fff;
+  --color-view: #60a5fa;
+  --color-view-content: #fff;
+  --color-copy: #22d3ee;
+  --color-copy-content: #000;
+}
+
+/* ── Cupertino Dark Palette ──────────────────────────────────────────────────
+   Los colores de acento referencian los tokens semánticos de DaisyUI,
+   así se adaptan automáticamente si el tema cambia.
+   Los fondos y textos son fijos porque el dashboard es siempre dark.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Fondos (dark fijo) */
+  --cp-bg-start:       #1c1c1e;
+  --cp-bg-end:         #2c2c2e;
+  --cp-modal-bg:       #2c2c2e;
+
+  /* Superficies glassmorphism (dark fijo) */
+  --cp-surface:        rgba(255, 255, 255, 0.07);
+  --cp-surface-border: rgba(255, 255, 255, 0.10);
+
+  /* Colores de acento → tokens DaisyUI */
+  --cp-green:          var(--color-success);   /* #34d399 dark / #10b981 light */
+  --cp-blue:           var(--color-info);      /* #38bdf8 dark / #0ea5e9 light */
+  --cp-red:            var(--color-primary);   /* #ff3b30 dark / #ff0000 light */
+  --cp-orange:         var(--color-error);     /* #fb923c dark / #ea580c light */
+  --cp-yellow:         var(--color-warning);   /* #fbbf24 dark / #f59e0b light */
+  --cp-purple:         var(--color-accent);    /* #818cf8 dark / #6366f1 light */
+
+  /* Texto (dark fijo) */
+  --cp-text-hi:        rgba(255, 255, 255, 0.90);
+  --cp-text-mid:       rgba(255, 255, 255, 0.50);
+  --cp-text-lo:        rgba(255, 255, 255, 0.35);
+  --cp-text-dim:       rgba(255, 255, 255, 0.20);
+
+  /* Separadores (dark fijo) */
+  --cp-divider:        rgba(255, 255, 255, 0.08);
+  --cp-divider-hi:     rgba(255, 255, 255, 0.12);
+
+  /* Fila deshabilitada */
+  --cp-row-disabled:   rgba(0, 0, 0, 0.15);
+}
+
+@layer base {
+  body {
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .sombra {
+    -webkit-filter: drop-shadow(3px 3px 2px rgba(0, 0, 0, 0.7));
+    filter: drop-shadow(3px 3px 2px rgba(0, 0, 0, 0.7));
+  }
+}
+
+@layer components {
+
+  /* ── AI Spinner – Cupertino style ──────────────────────────────────────── */
+  .ai-spinner {
+    @apply fixed inset-0 z-300 flex items-center justify-center;
+  }
+  .ai-spinner__backdrop {
+    @apply absolute inset-0 bg-base-300/20 backdrop-blur-sm;
+  }
+  .ai-spinner__sheet {
+    @apply relative flex flex-col items-center gap-6
+           px-16 py-12 min-w-72;
+    background: color-mix(in srgb, var(--color-base-100) 78%, transparent);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border-radius: 2rem;
+    border: 1px solid color-mix(in srgb, var(--color-base-300) 60%, transparent);
+    box-shadow:
+      0 24px 64px rgba(0, 0, 0, 0.10),
+      0  6px 20px rgba(0, 0, 0, 0.06),
+      inset 0 1px 0 rgba(255,255,255,0.5);
+    animation: ai-sheet-in 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  }
+
+  /* Two-ring indicator */
+  .ai-spinner__rings {
+    @apply relative;
+    width: 4rem;
+    height: 4rem;
+  }
+  .ai-spinner__ring {
+    @apply absolute rounded-full;
+    border: 2px solid transparent;
+  }
+  .ai-spinner__ring--outer {
+    inset: 0;
+    border-top-color: var(--color-primary);
+    border-right-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
+    animation: ai-spin-cw 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  .ai-spinner__ring--inner {
+    inset: 0.625rem;
+    border-bottom-color: var(--color-secondary);
+    border-left-color:  color-mix(in srgb, var(--color-secondary) 25%, transparent);
+    animation: ai-spin-ccw 0.75s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  .ai-spinner__dot-track {
+    position: absolute;
+    inset: 0;
+    transform-origin: center center;
+    transform: rotate(0deg);
+    pointer-events: none;
+  }
+  .ai-spinner__dot {
+    position: absolute;
+    top: -3px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--color-primary);
+    box-shadow: 0 0 10px 3px color-mix(in srgb, var(--color-primary) 60%, transparent);
+  }
+
+  .ai-spinner__label {
+    @apply text-base-content font-medium text-sm text-center;
+    letter-spacing: -0.01em;
+  }
+  .ai-spinner__sub {
+    @apply text-xs text-center font-light;
+    color: color-mix(in srgb, var(--color-base-content) 35%, transparent);
+    letter-spacing: 0.02em;
+    margin-top: -0.5rem;
+  }
+
+  /* Variante inline – vive DENTRO del dialog (top-layer) */
+  .ai-spinner--inline {
+    @apply absolute inset-0 z-10 flex items-center justify-center;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--color-base-100) 82%, transparent);
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    animation: none;
+  }
+  .ai-spinner--inline .ai-spinner__sheet {
+    background: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+    animation: ai-sheet-in 0.2s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  }
+
+  @keyframes ai-spin-cw  { to { transform: rotate(360deg);  } }
+  @keyframes ai-spin-ccw { to { transform: rotate(-360deg); } }
+  @keyframes ai-sheet-in {
+    from { opacity: 0; transform: scale(0.93) translateY(10px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0);    }
+  }
+  /* ─────────────────────────────────────────────────────────────────────── */
+
+  /* Botones personalizados para DaisyUI */
+  .btn.btn-edit {
+    --btn-color: var(--color-edit);
+    --btn-fg: var(--color-edit-content);
+    background-color: var(--color-edit);
+    color: var(--color-edit-content) !important;
+    border-color: var(--color-edit);
+  }
+  .btn.btn-edit:hover {
+    background-color: color-mix(in srgb, var(--color-edit) 90%, black);
+    border-color: color-mix(in srgb, var(--color-edit) 90%, black);
+    color: var(--color-edit-content) !important;
+  }
+  .btn.btn-edit:focus-visible { outline-color: var(--color-edit); }
+
+  .btn.btn-delete {
+    --btn-color: var(--color-delete);
+    --btn-fg: var(--color-delete-content);
+    background-color: var(--color-delete);
+    color: var(--color-delete-content) !important;
+    border-color: var(--color-delete);
+  }
+  .btn.btn-delete:hover {
+    background-color: color-mix(in srgb, var(--color-delete) 90%, black);
+    border-color: color-mix(in srgb, var(--color-delete) 90%, black);
+    color: var(--color-delete-content) !important;
+  }
+  .btn.btn-delete:focus-visible { outline-color: var(--color-delete); }
+
+  .btn.btn-view {
+    --btn-color: var(--color-view);
+    --btn-fg: var(--color-view-content);
+    background-color: var(--color-view);
+    color: var(--color-view-content) !important;
+    border-color: var(--color-view);
+  }
+  .btn.btn-view:hover {
+    background-color: color-mix(in srgb, var(--color-view) 90%, black);
+    border-color: color-mix(in srgb, var(--color-view) 90%, black);
+    color: var(--color-view-content) !important;
+  }
+  .btn.btn-view:focus-visible { outline-color: var(--color-view); }
+
+  .btn.btn-copy {
+    --btn-color: var(--color-copy);
+    --btn-fg: var(--color-copy-content);
+    background-color: var(--color-copy);
+    color: var(--color-copy-content) !important;
+    border-color: var(--color-copy);
+  }
+  .btn.btn-copy:hover {
+    background-color: color-mix(in srgb, var(--color-copy) 90%, black);
+    border-color: color-mix(in srgb, var(--color-copy) 90%, black);
+    color: var(--color-copy-content) !important;
+  }
+  .btn.btn-copy:focus-visible { outline-color: var(--color-copy); }
+
+  /* Utilidades de color semántico */
+  .text-copy   { color: var(--color-copy); }
+  .bg-copy     { background-color: var(--color-copy); }
+  .bg-copy\/10 { background-color: color-mix(in srgb, var(--color-copy) 10%, transparent); }
+
+  .text-edit   { color: var(--color-edit); }
+  .bg-edit     { background-color: var(--color-edit); }
+  .bg-edit\/10 { background-color: color-mix(in srgb, var(--color-edit) 10%, transparent); }
+
+  .text-delete   { color: var(--color-delete); }
+  .bg-delete     { background-color: var(--color-delete); }
+  .bg-delete\/10 { background-color: color-mix(in srgb, var(--color-delete) 10%, transparent); }
+
+  /* Avatar colors */
+  .avatar-c-0 { background-color: color-mix(in srgb, #ff0000 15%, white); color: #b91c1c; }
+  .avatar-c-1 { background-color: color-mix(in srgb, #45484d 15%, white); color: #2a2c30; }
+  .avatar-c-2 { background-color: color-mix(in srgb, #0ea5e9 15%, white); color: #0369a1; }
+  .avatar-c-3 { background-color: color-mix(in srgb, #10b981 15%, white); color: #047857; }
+  .avatar-c-4 { background-color: color-mix(in srgb, #f59e0b 15%, white); color: #b45309; }
+  .avatar-c-5 { background-color: color-mix(in srgb, #6366f1 15%, white); color: #4338ca; }
+  .avatar-c-6 { background-color: color-mix(in srgb, #eab308 15%, white); color: #854d0e; }
+  .avatar-c-7 { background-color: color-mix(in srgb, #06b6d4 15%, white); color: #0e7490; }
+  .avatar-c-8 { background-color: color-mix(in srgb, #3b82f6 15%, white); color: #1d4ed8; }
+  .avatar-c-9 { background-color: color-mix(in srgb, #ea580c 15%, white); color: #9a3412; }
+
+  /* Avatar colors dark mode */
+  [data-theme="sky-dark"] .avatar-c-0 { background-color: color-mix(in srgb, #ff3b30 25%, #2c2c2e); color: #fca5a5; }
+  [data-theme="sky-dark"] .avatar-c-1 { background-color: color-mix(in srgb, #45484d 25%, #2c2c2e); color: #d1d5db; }
+  [data-theme="sky-dark"] .avatar-c-2 { background-color: color-mix(in srgb, #0ea5e9 25%, #2c2c2e); color: #7dd3fc; }
+  [data-theme="sky-dark"] .avatar-c-3 { background-color: color-mix(in srgb, #10b981 25%, #2c2c2e); color: #6ee7b7; }
+  [data-theme="sky-dark"] .avatar-c-4 { background-color: color-mix(in srgb, #f59e0b 25%, #2c2c2e); color: #fcd34d; }
+  [data-theme="sky-dark"] .avatar-c-5 { background-color: color-mix(in srgb, #6366f1 25%, #2c2c2e); color: #a5b4fc; }
+  [data-theme="sky-dark"] .avatar-c-6 { background-color: color-mix(in srgb, #eab308 25%, #2c2c2e); color: #fde68a; }
+  [data-theme="sky-dark"] .avatar-c-7 { background-color: color-mix(in srgb, #06b6d4 25%, #2c2c2e); color: #67e8f9; }
+  [data-theme="sky-dark"] .avatar-c-8 { background-color: color-mix(in srgb, #3b82f6 25%, #2c2c2e); color: #93c5fd; }
+  [data-theme="sky-dark"] .avatar-c-9 { background-color: color-mix(in srgb, #ea580c 25%, #2c2c2e); color: #fdba74; }
+
+  /* Bordes entre filas del componente .table (eliminados en DaisyUI v5) */
+  .table tbody tr {
+    border-bottom: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  }
+  .table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  /* ── Documento (doc-wrap / doc-header / doc-body) ──────────────────────── */
+  .doc-wrap {
+    border-radius: 1rem;
+    box-shadow: 0 4px 24px -4px rgba(0,0,0,.10), 0 1px 4px rgba(0,0,0,.06);
+    overflow: hidden;
+  }
+
+  .doc-header {
+    border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
+    padding: 1.75rem 2.5rem 1.25rem;
+  }
+  .doc-header .doc-code  { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--color-primary); }
+  .doc-header .doc-title { font-size: 1.4rem; font-weight: 800; line-height: 1.3; margin: .3rem 0 .55rem; color: #1e293b; }
+  .doc-header .doc-meta  { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .78rem; color: #64748b; }
+  .doc-header .doc-sep   { color: #cbd5e1; }
+
+  .doc-body {
+    background: var(--color-base-100);
+    padding: 2rem 2.5rem 2.5rem;
+    counter-reset: seccion subseccion;
+  }
+
+  .doc-body :is(h2) { counter-reset: subseccion; }
+  .doc-body :is(h2)::before { counter-increment: seccion; content: counter(seccion) ".  "; }
+  .doc-body :is(h3)::before { counter-increment: subseccion; content: counter(seccion) "." counter(subseccion) "  "; }
+
+  .doc-body :is(h2) { font-size: .95rem; font-weight: 700; color: #1d4ed8; margin-top: 2rem; margin-bottom: .5rem; }
+  .doc-body :is(h2):first-child { margin-top: 0; }
+  .doc-body :is(h3) { font-size: .88rem; font-weight: 700; color: #1d4ed8; margin-top: 1.25rem; margin-bottom: .35rem; }
+  .doc-body :is(h4) { font-size: .84rem; font-weight: 600; color: var(--color-base-content); margin-top: .9rem; margin-bottom: .25rem; }
+  .doc-body :is(h5, h6) { font-size: .84rem; font-weight: 600; color: color-mix(in srgb, var(--color-base-content) 70%, transparent); margin-top: .7rem; margin-bottom: .15rem; }
+
+  .doc-body :is(p) { font-size: .84rem; color: color-mix(in srgb, var(--color-base-content) 80%, transparent); line-height: 1.7; margin-bottom: .45rem; text-align: justify; }
+  .doc-body :is(ul, ol) { padding-left: 1.4rem; margin-bottom: .6rem; }
+  .doc-body :is(li) { font-size: .84rem; color: color-mix(in srgb, var(--color-base-content) 80%, transparent); margin-bottom: .2rem; line-height: 1.6; }
+  .doc-body :is(strong) { color: var(--color-base-content); font-weight: 600; }
+
+  .doc-body :is(table) {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    font-size: .79rem; margin: 1rem 0 1.25rem;
+    border: 1px solid #dbeafe; border-radius: .5rem; overflow: hidden;
+  }
+  .doc-body :is(thead) { background: #eff6ff; }
+  .doc-body :is(th) {
+    color: #1d4ed8; font-weight: 700; font-size: .75rem;
+    padding: .55rem .85rem; text-align: left;
+    letter-spacing: .04em; text-transform: uppercase;
+    border-bottom: 2px solid #bfdbfe;
+  }
+  .doc-body :is(th:not(:last-child)) { border-right: 2px solid #bfdbfe; }
+  .doc-body :is(td) {
+    padding: .45rem .85rem; vertical-align: top;
+    color: color-mix(in srgb, var(--color-base-content) 80%, transparent); line-height: 1.5;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .doc-body :is(td:not(:last-child)) { border-right: 2px solid #e2e8f0; }
+  .doc-body :is(tbody tr:last-child td) { border-bottom: none; }
+  .doc-body :is(tbody tr:hover td) { background: #f8fafc; }
+
+  [data-theme="sky-dark"] .doc-header .doc-title { color: var(--color-base-content); }
+  [data-theme="sky-dark"] .doc-header .doc-meta  { color: color-mix(in srgb, var(--color-base-content) 60%, transparent); }
+  [data-theme="sky-dark"] .doc-body :is(h2),
+  [data-theme="sky-dark"] .doc-body :is(h3) { color: #93c5fd; }
+  [data-theme="sky-dark"] .doc-body :is(th) { color: #93c5fd; }
+  [data-theme="sky-dark"] .doc-body :is(table) { border-color: #1e3a5f; }
+  [data-theme="sky-dark"] .doc-body :is(thead) { background: #1e293b; }
+  [data-theme="sky-dark"] .doc-body :is(th) { border-bottom-color: #2d4a7a; }
+  [data-theme="sky-dark"] .doc-body :is(th:not(:last-child)) { border-right-color: #2d4a7a; }
+  [data-theme="sky-dark"] .doc-body :is(td) { border-bottom-color: color-mix(in srgb, var(--color-base-300) 80%, transparent); }
+  [data-theme="sky-dark"] .doc-body :is(td:not(:last-child)) { border-right-color: color-mix(in srgb, var(--color-base-300) 80%, transparent); }
+  [data-theme="sky-dark"] .doc-body :is(tbody tr:hover td) { background: color-mix(in srgb, var(--color-base-300) 30%, transparent); }
+
+  /* Barra de acciones fija */
+  .action-bar {
+    position: sticky;
+    bottom: 0;
+    background: rgba(255,255,255,.95);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid #e2e8f0;
+    padding: .85rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 10;
+    border-radius: 0 0 1rem 1rem;
+  }
+  [data-theme="sky-dark"] .action-bar {
+    background: color-mix(in srgb, var(--color-base-200) 95%, transparent);
+    border-top-color: color-mix(in srgb, var(--color-base-300) 80%, transparent);
+  }
+  /* ─────────────────────────────────────────────────────────────────────────── */
+}
+
+/* ── Compatibilidad DaisyUI v4 → v5 ─────────────────────────────────────────
+   Las clases -bordered fueron eliminadas en v5. Se redefinen aquí fuera de
+   cualquier @layer para tener prioridad sobre los estilos de DaisyUI.
+   ─────────────────────────────────────────────────────────────────────────── */
+.input-bordered,
+.textarea-bordered,
+.select-bordered {
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 20%, transparent);
+}
+.input-bordered:focus,
+.input-bordered:focus-within,
+.textarea-bordered:focus,
+.select-bordered:focus {
+  border-color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+  outline: none;
 }

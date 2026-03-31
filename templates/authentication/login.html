@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Iniciar sesión — RedLine GS{% endblock %}
+
+{% block content %}
+<script>
+  // Si ya tiene sesión, ir directamente al dashboard
+  if (localStorage.getItem('access')) {
+    (window.top || window).location.href = '/dashboard/';
+  }
+</script>
+<div class="min-h-screen bg-base-200 flex items-center justify-center p-4">
+
+  <div class="w-full max-w-sm">
+
+    <div class="bg-base-100 rounded-2xl shadow-xl overflow-hidden">
+      <div class="h-1.5 bg-primary w-full"></div>
+
+      <div class="px-8 py-10 flex flex-col items-center gap-7">
+
+        <div class="flex flex-col items-center gap-3">
+          <div class="bg-primary rounded-xl p-3 shadow-md">
+            <img src="{% static 'img/favicon.png' %}" alt="RedLine GS" class="h-10 w-10 object-contain brightness-0 invert">
+          </div>
+          <div class="text-center">
+            <h1 class="text-2xl font-extrabold text-base-content tracking-tight">RedLine GS</h1>
+            <p class="text-sm text-base-content/50 mt-0.5">Control de jornada laboral</p>
+          </div>
+        </div>
+
+        <a href="{% url 'authentication:oauth2_authorize' %}" class="btn btn-primary w-full rounded-xl gap-2 shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
+          </svg>
+          Entrar con Nextcloud
+        </a>
+
+        <p class="text-xs text-base-content/35 text-center">
+          Usa tu cuenta de <span class="font-semibold">sky.redlinegs.com</span>
+        </p>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

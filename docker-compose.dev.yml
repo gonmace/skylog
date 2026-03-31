@@ -10,7 +10,7 @@ services:
       - postgres_data:/var/lib/postgresql/data/
       - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     networks:
       - dev_network
     healthcheck:
@@ -19,35 +19,43 @@ services:
       timeout: 5s
       retries: 5
 
-  n8n:
-    image: n8nio/n8n:latest
-    container_name: ${PROJECT_NAME:-dev}_n8n
-    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    container_name: ${PROJECT_NAME:-dev}_redis
     ports:
-      - "${N8N_HOST_PORT:-5678}:5678"
-    environment:
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: n8n
-      DB_POSTGRESDB_USER: ${POSTGRES_USER}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-dev-encryption-key-change-in-prod}
-      GENERIC_TIMEZONE: ${TIME_ZONE:-America/La_Paz}
-      N8N_HOST: localhost
-      N8N_PORT: 5678
-      N8N_PROTOCOL: http
-    volumes:
-      - n8n_data:/home/node/.n8n
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - "6379:6379"
     networks:
       - dev_network
 
+  # n8n:
+  #   image: n8nio/n8n:latest
+  #   container_name: ${PROJECT_NAME:-dev}_n8n
+  #   restart: unless-stopped
+  #   ports:
+  #     - "${N8N_HOST_PORT:-5678}:5678"
+  #   environment:
+  #     DB_TYPE: postgresdb
+  #     DB_POSTGRESDB_HOST: postgres
+  #     DB_POSTGRESDB_PORT: 5432
+  #     DB_POSTGRESDB_DATABASE: n8n
+  #     DB_POSTGRESDB_USER: ${POSTGRES_USER}
+  #     DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+  #     N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-dev-encryption-key-change-in-prod}
+  #     GENERIC_TIMEZONE: ${TIME_ZONE:-America/La_Paz}
+  #     N8N_HOST: localhost
+  #     N8N_PORT: 5678
+  #     N8N_PROTOCOL: http
+  #   volumes:
+  #     - n8n_data:/home/node/.n8n
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   networks:
+  #     - dev_network
+
 volumes:
   postgres_data:
-  n8n_data:
+  # n8n_data:
 
 networks:
   dev_network:

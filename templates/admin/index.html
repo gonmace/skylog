@@ -1,0 +1,23 @@
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block content %}
+<div style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:20px;margin-bottom:24px;">
+  <h2 style="margin:0 0 16px;font-size:18px;font-weight:600;">Resumen de hoy — {{ today }}</h2>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+    <div style="background:#ede9fe;border-radius:8px;padding:16px;text-align:center;">
+      <div style="font-size:32px;font-weight:700;color:#6366f1;">{{ active_count }}</div>
+      <div style="font-size:13px;color:#555;margin-top:4px;">Jornadas activas ahora</div>
+    </div>
+    <div style="background:#d1fae5;border-radius:8px;padding:16px;text-align:center;">
+      <div style="font-size:32px;font-weight:700;color:#10b981;">{{ completed_count }}</div>
+      <div style="font-size:13px;color:#555;margin-top:4px;">Jornadas completadas hoy</div>
+    </div>
+    <div style="background:#e0f2fe;border-radius:8px;padding:16px;text-align:center;">
+      <div style="font-size:32px;font-weight:700;color:#0ea5e9;">{{ screenshot_count }}</div>
+      <div style="font-size:13px;color:#555;margin-top:4px;">Capturas recibidas hoy</div>
+    </div>
+  </div>
+</div>
+{{ block.super }}
+{% endblock %}

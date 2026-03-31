@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Agente activado — RedLine GS{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-base-200 flex items-center justify-center p-4">
+  <div class="w-full max-w-sm">
+    <div class="bg-base-100 rounded-2xl shadow-xl overflow-hidden">
+      <div class="h-1.5 bg-success w-full"></div>
+      <div class="px-8 py-10 flex flex-col items-center gap-6">
+        <div class="w-14 h-14 rounded-full bg-success/10 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg>
+        </div>
+        <div class="text-center">
+          <h1 class="text-lg font-bold text-base-content">¡Agente activado!</h1>
+          <p class="text-sm text-base-content/50 mt-2">El agente ya está listo. Puedes cerrar esta ventana.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

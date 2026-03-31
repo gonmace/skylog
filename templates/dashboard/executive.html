@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Panel ejecutivo — RedLine GS{% endblock %}
+
+{% block content %}
+<style>
+  .cupertino-page {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(160deg, var(--cp-bg-start) 0%, var(--cp-bg-end) 100%);
+  }
+  .cupertino-card {
+    background: var(--cp-surface);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--cp-surface-border);
+    border-radius: 16px;
+  }
+  .cupertino-stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .cupertino-stat-label {
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--cp-text-lo);
+    margin-bottom: 6px;
+  }
+  .cupertino-table thead tr { border-bottom: 1px solid var(--cp-divider); }
+  .cupertino-table thead th {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--cp-text-lo);
+    padding: 10px 16px;
+    text-align: left;
+  }
+  .cupertino-table thead th:first-child { padding-left: 24px; }
+  .cupertino-table tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    transition: background 0.15s ease;
+  }
+  .cupertino-table tbody tr:last-child { border-bottom: none; }
+  .cupertino-table tbody tr:hover { background: rgba(255,255,255,0.04); }
+  .cupertino-table tbody td {
+    padding: 12px 16px;
+    color: var(--cp-text-hi);
+    font-size: 0.875rem;
+  }
+  .cupertino-table tbody td:first-child { padding-left: 24px; }
+  .badge-active {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 0.72rem; font-weight: 600;
+    background: color-mix(in srgb, var(--cp-green) 15%, transparent);
+    color: var(--cp-green);
+    border: 1px solid color-mix(in srgb, var(--cp-green) 25%, transparent);
+  }
+  .badge-inactive {
+    display: inline-flex; align-items: center;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 0.72rem; font-weight: 500;
+    background: rgba(255,255,255,0.05);
+    color: var(--cp-text-dim);
+    border: 1px solid var(--cp-divider);
+  }
+  .agent-online {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.78rem; font-weight: 500;
+    color: var(--cp-green);
+  }
+  .agent-offline {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.78rem;
+    color: var(--cp-text-dim);
+  }
+  .dot-online {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--cp-green);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--cp-green) 70%, transparent);
+    flex-shrink: 0;
+  }
+  .dot-offline {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    flex-shrink: 0;
+  }
+  .btn-capture-ios {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 8px;
+    background: color-mix(in srgb, var(--cp-blue) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cp-blue) 30%, transparent);
+    color: var(--cp-blue);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+  .btn-capture-ios:hover  { background: color-mix(in srgb, var(--cp-blue) 25%, transparent); }
+  .btn-capture-ios:active { transform: scale(0.92); }
+  .btn-capture-ios:disabled { opacity: 0.35; cursor: default; }
+  .avatar-circle {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: color-mix(in srgb, var(--cp-blue) 18%, transparent);
+    color: var(--cp-blue);
+    font-size: 0.72rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    text-transform: uppercase; flex-shrink: 0; letter-spacing: 0.02em;
+  }
+  .btn-logout-ios {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px;
+    background: transparent;
+    border: 1px solid var(--cp-divider-hi);
+    color: var(--cp-text-lo);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .btn-logout-ios:hover {
+    background: color-mix(in srgb, var(--cp-red) 12%, transparent);
+    color: var(--cp-red);
+    border-color: color-mix(in srgb, var(--cp-red) 25%, transparent);
+  }
+  #last-updated { color: rgba(255,255,255,0.30); font-size: 0.72rem; }
+  .ios-toggle {
+    position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0;
+  }
+  .ios-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .ios-toggle-track {
+    position: absolute; inset: 0; border-radius: 24px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid var(--cp-divider);
+    cursor: pointer;
+    transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
+  }
+  .ios-toggle input:checked + .ios-toggle-track {
+    background: var(--cp-blue);
+    border-color: var(--cp-blue);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--cp-blue) 35%, transparent);
+  }
+  .ios-toggle.skylog-toggle input:checked + .ios-toggle-track {
+    background: var(--cp-orange);
+    border-color: var(--cp-orange);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--cp-orange) 35%, transparent);
+  }
+  .ios-toggle-track::after {
+    content: ''; position: absolute; left: 3px; top: 3px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: rgba(255,255,255,0.55);
+    transition: transform 0.25s cubic-bezier(.34,1.4,.64,1), background 0.2s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.40);
+  }
+  .ios-toggle input:checked + .ios-toggle-track::after {
+    transform: translateX(18px);
+    background: white;
+  }
+  /* Fila deshabilitada */
+  .row-disabled { background: var(--cp-row-disabled); }
+  .row-disabled .row-content { opacity: 0.35; pointer-events: none; }
+  /* Colores de texto para celdas */
+  .cp-text-hi  { color: var(--cp-text-hi); }
+  .cp-text-mid { color: var(--cp-text-mid); }
+  .cp-text-lo  { color: var(--cp-text-lo); }
+  .cp-text-dim { color: var(--cp-text-dim); }
+  .cp-green    { color: var(--cp-green); }
+  .cp-blue     { color: var(--cp-blue); }
+  .cp-orange   { color: var(--cp-orange); }
+  .cp-red      { color: var(--cp-red); }
+  .cp-mono     { font-family: monospace; font-size: 0.72rem; }
+  /* Modales Cupertino */
+  .cp-modal-box {
+    background: var(--cp-modal-bg);
+    border: 1px solid var(--cp-surface-border);
+    border-radius: 20px; padding: 0; max-width: 360px;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  }
+  .cp-modal-body { padding: 28px 24px 20px; text-align: center; }
+  .cp-modal-icon {
+    width: 52px; height: 52px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;
+  }
+  .cp-modal-icon.blue {
+    background: color-mix(in srgb, var(--cp-blue) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cp-blue) 22%, transparent);
+  }
+  .cp-modal-icon.orange {
+    background: color-mix(in srgb, var(--cp-orange) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cp-orange) 22%, transparent);
+  }
+  .cp-modal-title { font-size: 1rem; font-weight: 700; color: var(--cp-text-hi); margin-bottom: 8px; }
+  .cp-modal-text  { font-size: 0.82rem; color: var(--cp-text-lo); line-height: 1.5; }
+  .cp-modal-footer { display: flex; border-top: 1px solid var(--cp-divider); }
+  .cp-modal-btn {
+    flex: 1; padding: 14px; font-size: 0.875rem; background: transparent;
+    border: none; cursor: pointer; transition: background 0.15s; font-family: inherit;
+  }
+  .cp-modal-btn.cancel {
+    font-weight: 500; color: var(--cp-text-mid);
+    border-right: 1px solid var(--cp-divider);
+  }
+  .cp-modal-btn.cancel:hover { background: rgba(255,255,255,0.04); }
+  .cp-modal-btn.confirm-blue  { font-weight: 600; color: var(--cp-blue); }
+  .cp-modal-btn.confirm-blue:hover  { background: color-mix(in srgb, var(--cp-blue) 8%, transparent); }
+  .cp-modal-btn.confirm-orange { font-weight: 600; color: var(--cp-orange); }
+  .cp-modal-btn.confirm-orange:hover { background: color-mix(in srgb, var(--cp-orange) 8%, transparent); }
+</style>
+
+<div class="cupertino-page">
+<div class="container mx-auto max-w-5xl px-4 py-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <p id="last-updated"></p>
+    <button id="btn-logout" title="Cerrar sesión" class="btn-logout-ios">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Summary cards -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+
+    <div class="cupertino-card px-5 py-4 text-center">
+      <p class="cupertino-stat-label">Activos</p>
+      <p id="stat-active" class="cupertino-stat-value" style="color:#34c759">—</p>
+    </div>
+
+    <div class="cupertino-card px-5 py-4 text-center">
+      <p class="cupertino-stat-label">Completados hoy</p>
+      <p id="stat-completed" class="cupertino-stat-value" style="color:rgba(255,255,255,0.75)">—</p>
+    </div>
+
+    <div class="cupertino-card px-5 py-4 text-center">
+      <p class="cupertino-stat-label">Agentes online</p>
+      <p id="stat-agents" class="cupertino-stat-value" style="color:#0a84ff">—</p>
+    </div>
+
+    <div class="cupertino-card px-5 py-4 text-center">
+      <p class="cupertino-stat-label">Total usuarios</p>
+      <p id="stat-total" class="cupertino-stat-value" style="color:#ff9f0a">—</p>
+    </div>
+
+  </div>
+
+  <!-- Table -->
+  <div class="cupertino-card overflow-hidden">
+
+    <!-- Loading state -->
+    <div id="table-loading" class="flex items-center justify-center py-16 gap-3" style="color:rgba(255,255,255,0.25)">
+      <span class="loading loading-spinner loading-sm"></span>
+      <span class="text-sm">Cargando...</span>
+    </div>
+
+    <!-- Table -->
+    <div id="table-container" class="hidden overflow-x-auto">
+      <table class="cupertino-table w-full">
+        <thead>
+          <tr>
+            <th>Usuario</th>
+            <th>Jornada</th>
+            <th>Inicio</th>
+            <th>Duración</th>
+            <th>Intervalo</th>
+            <th>Agente</th>
+            <th style="text-align:center">Screenshots</th>
+            <th style="text-align:center">Skylog</th>
+          </tr>
+        </thead>
+        <tbody id="employee-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Empty state -->
+    <div id="table-empty" class="hidden flex flex-col items-center justify-center py-16 gap-2" style="color:rgba(255,255,255,0.20)">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>
+      <p class="text-sm">No hay usuarios registrados</p>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- Modal advertencia Skylog -->
+<dialog id="modal-skylog-off" class="modal">
+  <div class="modal-box cp-modal-box">
+    <div class="cp-modal-body">
+      <div class="cp-modal-icon orange">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="var(--cp-orange)" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+        </svg>
+      </div>
+      <h3 class="cp-modal-title">Revocar acceso a Skylog</h3>
+      <p class="cp-modal-text">El agente dejará de funcionar y el empleado verá una pantalla de acceso bloqueado en su dashboard.</p>
+    </div>
+    <div class="cp-modal-footer">
+      <button id="btn-skylog-cancel" class="cp-modal-btn cancel">Cancelar</button>
+      <button id="btn-skylog-confirm" class="cp-modal-btn confirm-orange">Revocar acceso</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Modal advertencia capturas -->
+<dialog id="modal-ss-off" class="modal">
+  <div class="modal-box cp-modal-box">
+    <div class="cp-modal-body">
+      <div class="cp-modal-icon blue">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="var(--cp-blue)" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+      </div>
+      <h3 class="cp-modal-title">Deshabilitar capturas</h3>
+      <p id="modal-ss-off-name" class="cp-modal-text">
+        El agente dejará de enviar capturas de pantalla en el próximo intervalo.
+      </p>
+    </div>
+    <div class="cp-modal-footer">
+      <button id="btn-ss-cancel" class="cp-modal-btn cancel">Cancelar</button>
+      <button id="btn-ss-confirm" class="cp-modal-btn confirm-blue">Deshabilitar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{% static 'dashboard/js/executive.js' %}" defer></script>
+{% endblock %}

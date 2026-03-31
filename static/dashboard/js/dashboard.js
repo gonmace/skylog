@@ -1,0 +1,580 @@
+(() => {
+  const access = localStorage.getItem('access');
+  if (!access) { window.location.href = '/login/'; return; }
+
+  function authHeaders() {
+    return {
+      'Authorization': `Bearer ${localStorage.getItem('access')}`,
+      'Content-Type': 'application/json',
+    };
+  }
+
+  function logout() {
+    localStorage.removeItem('access');
+    localStorage.removeItem('refresh');
+    window.location.href = '/login/';
+  }
+
+  const ALL_VIEWS = ['view-loading', 'view-noaccess', 'view-employee', 'view-executive'];
+
+  function showView(id) {
+    ALL_VIEWS.forEach(v => {
+      document.getElementById(v).classList.toggle('hidden', v !== id);
+    });
+  }
+
+  async function init() {
+    try {
+      const resp = await fetch('/api/auth/me/', { headers: authHeaders() });
+      if (resp.status === 401) { logout(); return; }
+      const profile = await resp.json();
+
+      if (profile.skylog_access === false) {
+        showView('view-noaccess');
+        initNoAccess();
+        return;
+      }
+
+      if (profile.is_executive) {
+        showView('view-executive');
+        initExecutive(profile);
+        return;
+      }
+
+      showView('view-employee');
+      initEmployee(profile);
+    } catch (e) {
+      // network error — leave loading screen visible
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  No Access
+  // ─────────────────────────────────────────────────────────────
+  function initNoAccess() {
+    document.getElementById('noaccess-btn-logout').addEventListener('click', logout);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  Employee
+  // ─────────────────────────────────────────────────────────────
+  function initEmployee(profileData) {
+    // Populate profile card
+    const profileFullname = document.getElementById('profile-fullname');
+    const profileEmail    = document.getElementById('profile-email');
+    if (profileFullname) profileFullname.textContent = profileData.full_name || profileData.nextcloud_username;
+    if (profileEmail)    profileEmail.textContent    = profileData.email || '';
+
+    const parts    = (profileData.full_name || profileData.nextcloud_username || '?').trim().split(/\s+/);
+    const initials = parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2);
+    const profileAvatar = document.getElementById('profile-avatar');
+    if (profileAvatar) profileAvatar.textContent = initials;
+
+    // DOM refs
+    const statusLoading   = document.getElementById('status-loading');
+    const statusInactive  = document.getElementById('status-inactive');
+    const statusActive    = document.getElementById('status-active');
+    const activeSince     = document.getElementById('active-since');
+    const btnStart        = document.getElementById('btn-start');
+    const btnEnd          = document.getElementById('btn-end');
+    const modal           = document.getElementById('modal-end-workday');
+    const setupRequired   = document.getElementById('setup-required');
+    const statusCard      = document.getElementById('status-card');
+    const btnSetupDownload = document.getElementById('btn-setup-download');
+    const btnSetupRetry   = document.getElementById('btn-setup-retry');
+    const btnModalCancel  = document.getElementById('btn-modal-cancel');
+    const btnModalSubmit  = document.getElementById('btn-modal-submit');
+    const modalError      = document.getElementById('modal-error');
+    const modalErrorText  = document.getElementById('modal-error-text');
+    const activitiesDone    = document.getElementById('activities-done');
+    const activitiesPlanned = document.getElementById('activities-planned');
+
+    let activeWorkdayId = null;
+
+    function getCsrfToken() {
+      const match = document.cookie.match(/csrftoken=([^;]+)/);
+      return match ? match[1] : '';
+    }
+
+    function formatTime(isoString) {
+      return new Date(isoString).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    function showActive(workdayId, startTime) {
+      activeWorkdayId = workdayId;
+      statusLoading.classList.add('hidden');
+      statusInactive.classList.add('hidden');
+      statusActive.classList.remove('hidden');
+      activeSince.textContent = `desde las ${formatTime(startTime)}`;
+      btnStart.classList.add('hidden');
+      btnEnd.classList.remove('hidden');
+    }
+
+    function showInactive() {
+      activeWorkdayId = null;
+      statusLoading.classList.add('hidden');
+      statusActive.classList.add('hidden');
+      statusInactive.classList.remove('hidden');
+      btnEnd.classList.add('hidden');
+      btnStart.classList.remove('hidden');
+    }
+
+    async function checkAgentAlive() {
+      try {
+        const resp = await fetch('http://127.0.0.1:7337/ping', { signal: AbortSignal.timeout(2000) });
+        return resp.ok;
+      } catch { return false; }
+    }
+
+    let setupPollInterval = null;
+
+    function startSetupPolling() {
+      if (setupPollInterval) return;
+      setupPollInterval = setInterval(async () => {
+        const alive = await checkAgentAlive();
+        if (alive) {
+          clearInterval(setupPollInterval);
+          setupPollInterval = null;
+          updateAgentStatus(true);
+        }
+      }, 5000);
+    }
+
+    function stopSetupPolling() {
+      if (setupPollInterval) { clearInterval(setupPollInterval); setupPollInterval = null; }
+    }
+
+    function updateAgentStatus(agentIsActive) {
+      const neverInstalled = !profileData?.agent_version;
+
+      if (neverInstalled && !agentIsActive) {
+        setupRequired.classList.remove('hidden');
+        statusCard.classList.add('hidden');
+        btnStart.classList.add('hidden');
+        btnEnd.classList.add('hidden');
+        document.getElementById('agent-version-card')?.classList.add('hidden');
+        startSetupPolling();
+        return;
+      }
+
+      stopSetupPolling();
+      setupRequired.classList.add('hidden');
+      statusCard.classList.remove('hidden');
+
+      const msg = 'El agente no está activo. Asegúrate de que redline_agent.exe esté corriendo.';
+      btnStart.disabled = !agentIsActive;
+      btnStart.title    = agentIsActive ? '' : msg;
+      btnEnd.disabled   = !agentIsActive;
+      btnEnd.title      = agentIsActive ? '' : msg;
+
+      const card        = document.getElementById('agent-version-card');
+      const btnDl       = document.getElementById('btn-download-agent');
+      const offlineBadge = document.getElementById('agent-offline-badge');
+      if (!card) return;
+
+      if (agentIsActive) {
+        card.classList.add('hidden');
+        if (btnDl) btnDl.classList.add('hidden');
+        if (offlineBadge) offlineBadge.classList.add('hidden');
+        return;
+      }
+      if (btnDl) btnDl.classList.remove('hidden');
+      if (offlineBadge) offlineBadge.classList.remove('hidden');
+
+      card.classList.remove('hidden');
+      const versionText = document.getElementById('agent-version-text');
+      const btnUpdate   = document.getElementById('btn-update-agent');
+      const installed   = profileData?.agent_version || '';
+      const latest      = profileData?.agent_latest_version || '';
+
+      if (!installed) {
+        versionText.textContent = 'No instalado';
+      } else if (latest && installed !== latest) {
+        versionText.textContent = `v${installed} → v${latest} disponible`;
+        if (btnUpdate) btnUpdate.classList.remove('hidden');
+      } else {
+        versionText.textContent = `v${installed}`;
+        if (btnUpdate) btnUpdate.classList.add('hidden');
+      }
+    }
+
+    async function loadWorkdayStatus() {
+      try {
+        const resp = await fetch('/api/workday/active/', { headers: authHeaders() });
+        if (resp.status === 401) { logout(); return; }
+        const data = await resp.json();
+        if (data.active) { showActive(data.workday_id, data.start_time); }
+        else             { showInactive(); }
+      } catch (e) {
+        statusLoading.classList.add('hidden');
+        statusInactive.classList.remove('hidden');
+      }
+    }
+
+    async function startWorkday() {
+      btnStart.disabled = true;
+      try {
+        const resp = await fetch('/api/workday/start/', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
+        });
+        const data = await resp.json();
+        if (!resp.ok) { alert(data.error || 'Error al iniciar jornada'); btnStart.disabled = false; return; }
+        showActive(data.workday_id, data.start_time);
+        fetch('http://127.0.0.1:7337/trigger', { method: 'POST' }).catch(() => {});
+      } catch (e) { alert('Error de conexión'); btnStart.disabled = false; }
+    }
+
+    async function endWorkday() {
+      const done    = activitiesDone.value.trim();
+      const planned = activitiesPlanned.value.trim();
+      if (!done || !planned) {
+        modalError.classList.remove('hidden');
+        modalErrorText.textContent = 'Completa ambos campos antes de finalizar.';
+        return;
+      }
+      modalError.classList.add('hidden');
+      btnModalSubmit.disabled = true;
+      btnModalSubmit.textContent = 'Finalizando...';
+      try {
+        const resp = await fetch('/api/workday/end/', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
+          body: JSON.stringify({ workday_id: activeWorkdayId, activities_done: done, activities_planned: planned }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          modalError.classList.remove('hidden');
+          modalErrorText.textContent = data.error || 'Error al finalizar jornada';
+          btnModalSubmit.disabled = false;
+          btnModalSubmit.textContent = 'Finalizar jornada';
+          return;
+        }
+        modal.close();
+        activitiesDone.value = '';
+        activitiesPlanned.value = '';
+        showInactive();
+      } catch (e) {
+        modalError.classList.remove('hidden');
+        modalErrorText.textContent = 'Error de conexión';
+        btnModalSubmit.disabled = false;
+        btnModalSubmit.textContent = 'Finalizar jornada';
+      }
+    }
+
+    async function downloadAgent(btn, originalHTML) {
+      btn.disabled = true;
+      btn.textContent = 'Preparando...';
+      try {
+        const resp = await fetch('/api/agent/download/', { headers: authHeaders() });
+        if (!resp.ok) { const d = await resp.json().catch(() => ({})); alert(d.error || 'Error al descargar el agente'); return; }
+        const blob = await resp.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = 'redline_agent.exe'; a.click();
+        URL.revokeObjectURL(url);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+      }
+    }
+
+    async function loadLastReport() {
+      try {
+        const resp = await fetch('/api/workday/last-report/', { headers: authHeaders() });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.has_report) return;
+        const col     = document.getElementById('last-report-col');
+        const planned = document.getElementById('report-planned');
+        const done    = document.getElementById('report-done');
+        const dateEl  = document.getElementById('report-date');
+        if (planned) planned.textContent = data.activities_planned;
+        if (done)    done.textContent    = data.activities_done;
+        if (dateEl) {
+          const d = new Date(data.date);
+          dateEl.textContent = d.toLocaleDateString('es-BO', { weekday: 'long', day: 'numeric', month: 'long' });
+        }
+        if (col) col.classList.remove('hidden');
+      } catch (e) {}
+    }
+
+    // Event listeners
+    btnStart.addEventListener('click', startWorkday);
+    btnEnd.addEventListener('click', () => {
+      modalError.classList.add('hidden');
+      btnModalSubmit.disabled = false;
+      btnModalSubmit.textContent = 'Finalizar jornada';
+      modal.showModal();
+    });
+    btnModalCancel.addEventListener('click', () => modal.close());
+    btnModalSubmit.addEventListener('click', endWorkday);
+    document.getElementById('btn-logout').addEventListener('click', logout);
+
+    const downloadBtn = document.getElementById('btn-download-agent');
+    if (downloadBtn) {
+      const orig = downloadBtn.innerHTML;
+      downloadBtn.addEventListener('click', (e) => { e.preventDefault(); downloadAgent(e.currentTarget, orig); });
+    }
+
+    const btnUpdateAgent = document.getElementById('btn-update-agent');
+    if (btnUpdateAgent) {
+      const orig = btnUpdateAgent.innerHTML;
+      btnUpdateAgent.addEventListener('click', () => downloadAgent(btnUpdateAgent, orig));
+    }
+
+    if (btnSetupDownload) {
+      const orig = btnSetupDownload.innerHTML;
+      btnSetupDownload.addEventListener('click', (e) => { e.preventDefault(); downloadAgent(e.currentTarget, orig); });
+    }
+
+    if (btnSetupRetry) {
+      btnSetupRetry.addEventListener('click', async () => {
+        btnSetupRetry.disabled = true;
+        btnSetupRetry.textContent = 'Verificando...';
+        const alive = await checkAgentAlive();
+        updateAgentStatus(alive);
+        btnSetupRetry.disabled = false;
+        btnSetupRetry.textContent = 'Ya lo instalé — verificar conexión';
+      });
+    }
+
+    // Init
+    checkAgentAlive().then(updateAgentStatus);
+    loadWorkdayStatus();
+    loadLastReport();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  Executive
+  // ─────────────────────────────────────────────────────────────
+  function initExecutive() {
+    const REFRESH_INTERVAL = 30 * 1000;
+
+    function formatTime(iso) {
+      return new Date(iso).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    function formatDuration(minutes) {
+      if (!minutes && minutes !== 0) return '—';
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    function initials(name) {
+      const parts = (name || '?').trim().split(/\s+/);
+      return parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2);
+    }
+
+    function renderRow(emp) {
+      const workday  = emp.workday;
+      const isActive = workday?.active;
+      const agentOn  = emp.agent_is_active;
+
+      const workdayBadge = isActive
+        ? `<span class="badge-active"><span class="dot-online" style="animation:pulse 2s infinite"></span>Activa</span>`
+        : `<span class="badge-inactive">Sin jornada</span>`;
+
+      const version  = emp.agent_version
+        ? ` <span style="color:var(--cp-text-dim);font-family:monospace;font-size:0.72rem">— ${emp.agent_version}</span>`
+        : '';
+      const agentDot = agentOn
+        ? `<span class="agent-online"><span class="dot-online"></span>Online${version}</span>`
+        : `<span class="agent-offline"><span class="dot-offline"></span>Offline${version}</span>`;
+
+      const interval = emp.capture_interval_minutes != null
+        ? `<span style="color:var(--cp-text-mid);font-size:0.82rem">${emp.capture_interval_minutes} min</span>`
+        : `<span style="color:var(--cp-text-dim)">—</span>`;
+
+      const captureBtn = agentOn
+        ? `<button class="btn-capture btn-capture-ios" data-id="${emp.id}" title="Capturar pantalla ahora">
+             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="pointer-events-none">
+               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+             </svg>
+           </button>`
+        : '';
+
+      const checked      = emp.screenshots_enabled ? 'checked' : '';
+      const skylogChecked = emp.skylog_access ? 'checked' : '';
+      const disabled     = !emp.skylog_access;
+      const rowStyle     = disabled ? 'opacity:0.35;pointer-events:none' : '';
+      const ssDisabled   = disabled ? 'disabled' : '';
+
+      return `<tr style="${disabled ? 'background:var(--cp-row-disabled)' : ''}">
+        <td style="${rowStyle}">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="avatar-circle">${initials(emp.full_name)}</div>
+            <span style="font-weight:500;font-size:0.875rem">${emp.full_name}</span>
+          </div>
+        </td>
+        <td style="${rowStyle}">${disabled ? '<span style="color:var(--cp-text-dim)">—</span>' : workdayBadge}</td>
+        <td style="color:var(--cp-text-mid);font-size:0.82rem;${rowStyle}">${disabled ? '' : (isActive ? formatTime(workday.start_time) : '—')}</td>
+        <td style="font-size:0.82rem;${rowStyle}">
+          ${disabled ? '' : `<span style="color:var(--cp-text-mid)">${isActive ? formatDuration(workday.duration_minutes) : '—'}</span>
+          ${isActive && workday.inactive_minutes > 0
+            ? `<br><span style="color:rgba(255,99,99,0.75);font-size:0.72rem">▾ ~${formatDuration(workday.inactive_minutes)} inactivo est.</span>`
+            : ''}`}
+        </td>
+        <td class="interval-cell" style="${rowStyle}">${disabled || !emp.screenshots_enabled ? '' : interval}</td>
+        <td style="${rowStyle}">${disabled ? '' : agentDot}</td>
+        <td style="text-align:center;${rowStyle}">
+          <div style="display:inline-flex;align-items:center;gap:10px">
+            ${disabled ? '' : captureBtn}
+            <label class="ios-toggle" style="${disabled ? 'pointer-events:none' : ''}">
+              <input type="checkbox" data-emp-id="${emp.id}" class="ss-toggle" ${checked} ${ssDisabled}>
+              <span class="ios-toggle-track"></span>
+            </label>
+          </div>
+        </td>
+        <td style="text-align:center">
+          <label class="ios-toggle skylog-toggle">
+            <input type="checkbox" data-emp-id="${emp.id}" class="skylog-toggle-input" ${skylogChecked}>
+            <span class="ios-toggle-track"></span>
+          </label>
+        </td>
+      </tr>`;
+    }
+
+    async function loadOverview() {
+      try {
+        const resp = await fetch('/api/employees/overview/', { headers: authHeaders() });
+        if (resp.status === 401) { logout(); return; }
+        if (resp.status === 403) { init(); return; }
+        const data = await resp.json();
+
+        document.getElementById('stat-active').textContent    = data.summary.active_now;
+        document.getElementById('stat-completed').textContent = data.summary.completed_today;
+        document.getElementById('stat-agents').textContent    = data.summary.agents_online;
+        document.getElementById('stat-total').textContent     = data.summary.total_employees;
+
+        document.getElementById('table-loading').classList.add('hidden');
+        if (data.employees.length === 0) {
+          document.getElementById('table-empty').classList.remove('hidden');
+        } else {
+          const tbody = document.getElementById('employee-tbody');
+          tbody.innerHTML = data.employees.map(renderRow).join('');
+          document.getElementById('table-container').classList.remove('hidden');
+          document.getElementById('table-empty').classList.add('hidden');
+        }
+
+        const ts = new Date().toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        document.getElementById('exec-last-updated').textContent = `Actualizado a las ${ts}`;
+      } catch (e) {}
+    }
+
+    document.getElementById('exec-btn-logout').addEventListener('click', logout);
+
+    // Capture button — event delegation
+    document.getElementById('employee-tbody').addEventListener('click', async (e) => {
+      const btn = e.target.closest('.btn-capture');
+      if (!btn) return;
+      const employeeId = btn.dataset.id;
+      btn.disabled = true;
+      try {
+        await fetch(`/api/employees/${employeeId}/capture/`, { method: 'POST', headers: authHeaders() });
+      } finally {
+        setTimeout(() => { btn.disabled = false; }, 3000);
+      }
+    });
+
+    // Skylog toggle
+    const modalSkylogOff  = document.getElementById('modal-skylog-off');
+    const btnSkylogCancel = document.getElementById('btn-skylog-cancel');
+    const btnSkylogConfirm = document.getElementById('btn-skylog-confirm');
+    let pendingSkylogToggle = null;
+
+    async function applySkylogToggle(toggle, on) {
+      toggle.disabled = true;
+      try {
+        await fetch(`/api/employees/${toggle.dataset.empId}/skylog/`, {
+          method: 'PATCH',
+          headers: authHeaders(),
+          body: JSON.stringify({ skylog_access: on }),
+        });
+        await loadOverview();
+      } catch (_) { toggle.checked = !on; }
+      finally { toggle.disabled = false; }
+    }
+
+    document.getElementById('employee-tbody').addEventListener('change', (e) => {
+      const skylogToggle = e.target.closest('.skylog-toggle-input');
+      if (skylogToggle) {
+        if (!skylogToggle.checked) {
+          skylogToggle.checked = true;
+          pendingSkylogToggle = skylogToggle;
+          modalSkylogOff.showModal();
+        } else {
+          applySkylogToggle(skylogToggle, true);
+        }
+      }
+    });
+
+    btnSkylogCancel.addEventListener('click', () => { pendingSkylogToggle = null; modalSkylogOff.close(); });
+    btnSkylogConfirm.addEventListener('click', async () => {
+      modalSkylogOff.close();
+      if (!pendingSkylogToggle) return;
+      const t = pendingSkylogToggle;
+      pendingSkylogToggle = null;
+      t.checked = false;
+      await applySkylogToggle(t, false);
+    });
+
+    // Screenshots toggle
+    const modalSsOff  = document.getElementById('modal-ss-off');
+    const btnSsCancel = document.getElementById('btn-ss-cancel');
+    const btnSsConfirm = document.getElementById('btn-ss-confirm');
+    let pendingToggle = null;
+
+    async function applyScreenshotsToggle(toggle, on) {
+      toggle.disabled = true;
+      try {
+        await fetch(`/api/employees/${toggle.dataset.empId}/screenshots/`, {
+          method: 'PATCH',
+          headers: authHeaders(),
+          body: JSON.stringify({ screenshots_enabled: on }),
+        });
+        await loadOverview();
+      } catch (_) { toggle.checked = !on; }
+      finally { toggle.disabled = false; }
+    }
+
+    document.getElementById('employee-tbody').addEventListener('change', (e) => {
+      const toggle = e.target.closest('.ss-toggle');
+      if (!toggle) return;
+      if (!toggle.checked) {
+        toggle.checked = true;
+        pendingToggle = toggle;
+        modalSsOff.showModal();
+      } else {
+        const intervalCell = toggle.closest('tr')?.querySelector('.interval-cell');
+        if (intervalCell && intervalCell.dataset.prev) intervalCell.innerHTML = intervalCell.dataset.prev;
+        applyScreenshotsToggle(toggle, true);
+      }
+    });
+
+    btnSsCancel.addEventListener('click', () => { pendingToggle = null; modalSsOff.close(); });
+    btnSsConfirm.addEventListener('click', async () => {
+      modalSsOff.close();
+      if (!pendingToggle) return;
+      const t = pendingToggle;
+      pendingToggle = null;
+      t.checked = false;
+      const intervalCell = t.closest('tr')?.querySelector('.interval-cell');
+      if (intervalCell) { intervalCell.dataset.prev = intervalCell.innerHTML; intervalCell.innerHTML = ''; }
+      await applyScreenshotsToggle(t, false);
+    });
+
+    // Init
+    loadOverview();
+    let poller = setInterval(loadOverview, REFRESH_INTERVAL);
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { clearInterval(poller); }
+      else { loadOverview(); poller = setInterval(loadOverview, REFRESH_INTERVAL); }
+    });
+  }
+
+  init();
+})();

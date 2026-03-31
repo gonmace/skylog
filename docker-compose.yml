@@ -15,6 +15,18 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: ${PROJECT_NAME}_redis
+    restart: always
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   django:
     build:
       context: .
@@ -31,47 +43,49 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - app_network
-
-  n8n:
-    profiles: [n8n]
-    build:
-      context: .
-      dockerfile: docker/n8n.Dockerfile
-    image: ${PROJECT_NAME}_n8n:latest
-    container_name: ${PROJECT_NAME}_n8n
-    restart: always
-    ports:
-      - "5680:5678"
-    environment:
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: n8n
-      DB_POSTGRESDB_USER: ${POSTGRES_USER}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      GENERIC_TIMEZONE: ${TIME_ZONE:-America/La_Paz}
-      N8N_HOST: ${N8N_DOMAIN}
-      N8N_PORT: 5678
-      N8N_PROTOCOL: https
-      N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN}/
-      WEBHOOK_URL: https://${N8N_DOMAIN}/
-      N8N_IMPORT_ACTIVE: "true"
-      N8N_TRUST_PROXY: "true"
-      N8N_PROXY_HOPS: "1"
-      N8N_DIAGNOSTICS_ENABLED: "false"
-      N8N_LOG_LEVEL: warn
-      OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: "false"
-    volumes:
-      - ./volumes/n8n:/home/node/.n8n
-      - ./n8n/workflows:/home/node/.n8n/workflows-import:ro
-    depends_on:
-      postgres:
+      redis:
         condition: service_healthy
     networks:
       - app_network
+
+  # n8n:
+  #   profiles: [n8n]
+  #   build:
+  #     context: .
+  #     dockerfile: docker/n8n.Dockerfile
+  #   image: ${PROJECT_NAME}_n8n:latest
+  #   container_name: ${PROJECT_NAME}_n8n
+  #   restart: always
+  #   ports:
+  #     - "5680:5678"
+  #   environment:
+  #     DB_TYPE: postgresdb
+  #     DB_POSTGRESDB_HOST: postgres
+  #     DB_POSTGRESDB_PORT: 5432
+  #     DB_POSTGRESDB_DATABASE: n8n
+  #     DB_POSTGRESDB_USER: ${POSTGRES_USER}
+  #     DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+  #     N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+  #     GENERIC_TIMEZONE: ${TIME_ZONE:-America/La_Paz}
+  #     N8N_HOST: ${N8N_DOMAIN}
+  #     N8N_PORT: 5678
+  #     N8N_PROTOCOL: https
+  #     N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN}/
+  #     WEBHOOK_URL: https://${N8N_DOMAIN}/
+  #     N8N_IMPORT_ACTIVE: "true"
+  #     N8N_TRUST_PROXY: "true"
+  #     N8N_PROXY_HOPS: "1"
+  #     N8N_DIAGNOSTICS_ENABLED: "false"
+  #     N8N_LOG_LEVEL: warn
+  #     OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: "false"
+  #   volumes:
+  #     - ./volumes/n8n:/home/node/.n8n
+  #     - ./n8n/workflows:/home/node/.n8n/workflows-import:ro
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   networks:
+  #     - app_network
 
 networks:
   app_network:

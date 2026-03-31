@@ -27,9 +27,5 @@ chmod -R o+rX /app/staticfiles
 echo 'Ejecutando migraciones...'
 python manage.py migrate
 
-echo 'Iniciando Gunicorn...'
-exec gunicorn core.wsgi:application \
-    --bind 0.0.0.0:8000 \
-    --workers 3 \
-    --access-logfile - \
-    --error-logfile -
+echo 'Iniciando Daphne (ASGI)...'
+exec daphne -b 0.0.0.0 -p 8000 core.asgi:application

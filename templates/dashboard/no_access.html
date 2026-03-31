@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Acceso restringido — RedLine GS{% endblock %}
+
+{% block content %}
+<style>
+  .noaccess-page {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(160deg, #1c1c1e 0%, #2c2c2e 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .noaccess-card {
+    background: rgba(255,255,255,0.07);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 24px;
+    padding: 48px 36px;
+    max-width: 400px;
+    width: 100%;
+    text-align: center;
+  }
+  .noaccess-icon {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    background: rgba(255,159,10,0.10);
+    border: 1px solid rgba(255,159,10,0.20);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 24px;
+  }
+  .noaccess-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.90);
+    margin-bottom: 12px;
+    letter-spacing: -0.02em;
+  }
+  .noaccess-body {
+    font-size: 0.875rem;
+    color: rgba(255,255,255,0.38);
+    line-height: 1.65;
+    margin-bottom: 32px;
+  }
+  .noaccess-body strong { color: rgba(255,255,255,0.55); }
+  .btn-logout-noaccess {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 11px 22px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    color: rgba(255,255,255,0.45);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-family: inherit;
+  }
+  .btn-logout-noaccess:hover { background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.65); }
+</style>
+
+<div class="noaccess-page">
+  <div class="noaccess-card">
+    <div class="noaccess-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="#ff9f0a" stroke-width="1.75">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+      </svg>
+    </div>
+    <p class="noaccess-title">Acceso a Skylog deshabilitado</p>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const access = localStorage.getItem('access');
+    if (!access) { window.location.href = '/login/'; return; }
+    document.getElementById('btn-noaccess-logout').addEventListener('click', () => {
+      localStorage.removeItem('access');
+      localStorage.removeItem('refresh');
+      window.location.href = '/login/';
+    });
+  })();
+</script>
+{% endblock %}

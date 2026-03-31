@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>Redirigiendo...</title></head>
+<body>
+<script>
+  localStorage.setItem('access', '{{ access }}');
+  localStorage.setItem('refresh', '{{ refresh }}');
+  (window.top || window).location.href = '{{ redirect_url }}';
+</script>
+</body>
+</html>

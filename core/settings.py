@@ -15,8 +15,18 @@ ADMIN_URL = config('ADMIN_URL', default='admin/')
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'home',
     'axes',
+    'channels',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+    'employees',
+    'workdays',
+    'screenshots',
+    'authentication',
+    'agent_ws',
 
     'django.contrib.admin',
     'django.contrib.auth',
@@ -37,7 +47,6 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 INSTALLED_APPS += ['tailwind', 'theme']
@@ -73,6 +82,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'core.wsgi.application'
+ASGI_APPLICATION = 'core.asgi.application'
 
 # Database: SQLite por defecto en dev, PostgreSQL si se define POSTGRES_DB
 if config('POSTGRES_DB', default=''):
@@ -146,10 +156,12 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-X_FRAME_OPTIONS = 'DENY'
+# Permitir iframe desde Nextcloud (CSP frame-ancestors es más granular que X-Frame-Options)
+# XFrameOptionsMiddleware se elimina del MIDDLEWARE; usamos CSP_FRAME_ANCESTORS en su lugar.
 
 # ── django-axes (protección brute force) ──────────────────────────────────────
 AXES_FAILURE_LIMIT = 5
@@ -163,9 +175,85 @@ CSP_STYLE_SRC = ("'self'",)
 CSP_IMG_SRC = ("'self'", "data:")
 CSP_FONT_SRC = ("'self'",)
 CSP_CONNECT_SRC = ("'self'",) if not DEBUG else ("'self'", "ws://localhost:*", "ws://127.0.0.1:*")
+CSP_FORM_ACTION = ("'self'", "https://sky.redlinegs.com")
+CSP_OBJECT_SRC = ("'none'",)
+CSP_BASE_URI = ("'self'",)
+
+# ── Django REST Framework ─────────────────────────────────────────────────────
+from datetime import timedelta
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/min',
+        'user': '300/min',
+    },
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=2),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+# ── WebSocket / Redis ─────────────────────────────────────────────────────────
+REDIS_URL = config('REDIS_URL', default='')
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [REDIS_URL]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
+
+NEXTCLOUD_SERVER_URL = config('NEXTCLOUD_SERVER_URL', default='https://sky.redlinegs.com')
+NEXTCLOUD_OAUTH2_CLIENT_ID = config('NEXTCLOUD_OAUTH2_CLIENT_ID', default='')
+NEXTCLOUD_OAUTH2_CLIENT_SECRET = config('NEXTCLOUD_OAUTH2_CLIENT_SECRET', default='')
+# URI de redirección registrada en Nextcloud — debe coincidir exactamente
+NEXTCLOUD_OAUTH2_REDIRECT_URI = config('NEXTCLOUD_OAUTH2_REDIRECT_URI', default='')
+# URL a la que se redirige tras autenticación (ej: página de Nextcloud que contiene el iframe)
+NEXTCLOUD_RETURN_URL = config('NEXTCLOUD_RETURN_URL', default='')
+
+# Permitir que Nextcloud embeba la app en iframe
+CSP_FRAME_ANCESTORS = ("'self'", NEXTCLOUD_SERVER_URL)
+SCREENSHOT_STORAGE_PATH = config('SCREENSHOT_STORAGE_PATH', default='screenshots')
+_av = {}
+exec(open(os.path.join(BASE_DIR, 'agent', 'version.py')).read(), _av)
+AGENT_LATEST_VERSION = _av['VERSION']
+del _av
+
+# Almacenamiento de capturas en Nextcloud (opcional).
+# Si NEXTCLOUD_SCREENSHOTS_USER está definido, las capturas se suben vía WebDAV
+# en lugar de guardarse localmente en MEDIA_ROOT.
+NEXTCLOUD_SCREENSHOTS_USER = config('NEXTCLOUD_SCREENSHOTS_USER', default='')
+NEXTCLOUD_SCREENSHOTS_PASSWORD = config('NEXTCLOUD_SCREENSHOTS_PASSWORD', default='')
+NEXTCLOUD_SCREENSHOTS_FOLDER = config('NEXTCLOUD_SCREENSHOTS_FOLDER', default='Skylog/screenshots')
 
 # ── Admins y logging ──────────────────────────────────────────────────────────
-ADMINS = [('Admin', 'admin@example.com')]
+_admin_name = config('ADMIN_NAME', default='')
+_admin_email = config('ADMIN_EMAIL', default='')
+ADMINS = [(_admin_name, _admin_email)] if _admin_name and _admin_email else []
 MANAGERS = ADMINS
 
 LOGGING = {
