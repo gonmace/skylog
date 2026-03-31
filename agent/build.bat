@@ -5,16 +5,11 @@ echo Instalando dependencias del agente...
 pip install -r requirements-agent.txt
 
 echo Compilando agente...
-pyinstaller --onefile --noconsole --name redline_agent agent.py
-
-echo Copiando config.json junto al .exe...
-copy /Y config.json dist\config.json
+pyinstaller redline_agent.spec --noconfirm
 
 echo.
 echo Compilacion completada.
-echo Archivos listos en la carpeta dist\:
-echo   - redline_agent.exe
-echo   - config.json  ^<-- edita este con el jwt_token del empleado
+echo Ejecutable listo en: dist\redline_agent.exe
 echo.
 echo Para instalar en inicio de Windows: dist\redline_agent.exe --install
 pause

@@ -264,6 +264,8 @@ class _LocalHandler(BaseHTTPRequestHandler):
     def _cors_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        # Requerido por Chrome 94+ para permitir fetch desde HTTPS a localhost
+        self.send_header('Access-Control-Allow-Private-Network', 'true')
 
     def log_message(self, *args):
         pass  # silencioso
