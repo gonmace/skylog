@@ -38,6 +38,7 @@ services:
     volumes:
       - ./staticfiles:/app/staticfiles
       - ./media:/app/media
+      - ./agent/dist:/app/agent/dist:ro
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:
