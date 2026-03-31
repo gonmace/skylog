@@ -290,19 +290,54 @@
     }
 
     async function downloadAgent(btn, originalHTML) {
+      // Abrir modal inmediatamente
+      const dlModal   = document.getElementById('modal-download-agent');
+      const step1Icon = document.getElementById('dl-step-1-icon');
+      const step1Sub  = document.getElementById('dl-step-1-sub');
+      const stepsRest = document.getElementById('dl-steps-rest');
+      const dlError   = document.getElementById('dl-error');
+      const dlErrTxt  = document.getElementById('dl-error-text');
+      const btnClose  = document.getElementById('btn-dl-close');
+
+      // Resetear estado del modal
+      step1Icon.innerHTML = '<span class="loading loading-spinner loading-xs" style="color:var(--cp-blue)"></span>';
+      step1Sub.textContent = 'Puede tardar unos segundos';
+      stepsRest.classList.add('hidden');
+      dlError.classList.add('hidden');
+      btnClose.disabled = true;
+      dlModal.showModal();
+
       btn.disabled = true;
-      btn.textContent = 'Preparando...';
+
       try {
         const resp = await fetch('/api/agent/download/', { headers: authHeaders() });
-        if (!resp.ok) { const d = await resp.json().catch(() => ({})); alert(d.error || 'Error al descargar el agente'); return; }
+        if (!resp.ok) {
+          const d = await resp.json().catch(() => ({}));
+          dlErrTxt.textContent = d.error || 'Error al descargar el agente';
+          dlError.classList.remove('hidden');
+          step1Icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="var(--cp-red)" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+          step1Sub.textContent = 'No se pudo descargar';
+          return;
+        }
         const blob = await resp.blob();
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement('a');
         a.href = url; a.download = 'redline_agent.exe'; a.click();
         URL.revokeObjectURL(url);
+
+        // Marcar paso 1 como completado y mostrar pasos siguientes
+        step1Icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="var(--cp-green)" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+        step1Sub.textContent = 'Descarga iniciada — revisa la carpeta de descargas';
+        stepsRest.classList.remove('hidden');
+      } catch (e) {
+        dlErrTxt.textContent = 'Error de conexión al descargar';
+        dlError.classList.remove('hidden');
+        step1Icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="var(--cp-red)" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+        step1Sub.textContent = 'No se pudo descargar';
       } finally {
         btn.disabled = false;
         btn.innerHTML = originalHTML;
+        btnClose.disabled = false;
       }
     }
 
@@ -337,6 +372,11 @@
     btnModalCancel.addEventListener('click', () => modal.close());
     btnModalSubmit.addEventListener('click', endWorkday);
     document.getElementById('btn-logout').addEventListener('click', logout);
+
+    const btnDlClose = document.getElementById('btn-dl-close');
+    if (btnDlClose) {
+      btnDlClose.addEventListener('click', () => document.getElementById('modal-download-agent').close());
+    }
 
     const downloadBtn = document.getElementById('btn-download-agent');
     if (downloadBtn) {

@@ -317,14 +317,18 @@
           <div class="flex flex-col gap-3 text-left max-w-xs mx-auto mb-6">
             <div class="flex items-start gap-3">
               <span class="step-number">1</span>
-              <span class="text-sm" style="color:rgba(255,255,255,0.60)">Descarga y ejecuta <code style="color:var(--cp-blue);font-family:monospace;font-size:0.75rem">redline_agent.exe</code></span>
+              <span class="text-sm" style="color:rgba(255,255,255,0.60)">Descarga <code style="color:var(--cp-blue);font-family:monospace;font-size:0.75rem">redline_agent.exe</code> y guárdalo en una carpeta fija</span>
             </div>
             <div class="flex items-start gap-3">
               <span class="step-number">2</span>
-              <span class="text-sm" style="color:rgba(255,255,255,0.60)">Inicia sesión con Nextcloud en el navegador que se abre</span>
+              <span class="text-sm" style="color:rgba(255,255,255,0.60)">Desactiva el antivirus temporalmente y ejecútalo como administrador</span>
             </div>
             <div class="flex items-start gap-3">
               <span class="step-number">3</span>
+              <span class="text-sm" style="color:rgba(255,255,255,0.60)">Autoriza el agente en el navegador que se abre</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="step-number">4</span>
               <span class="text-sm" style="color:rgba(255,255,255,0.60)">Vuelve aquí — el panel se activará automáticamente</span>
             </div>
           </div>
@@ -598,6 +602,99 @@
     <div class="cp-modal-footer">
       <button id="btn-skylog-cancel" class="cp-modal-btn cancel">Cancelar</button>
       <button id="btn-skylog-confirm" class="cp-modal-btn confirm-orange">Revocar acceso</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Descargar agente: pasos de instalación -->
+<dialog id="modal-download-agent" class="modal modal-ios">
+  <div class="modal-box max-w-sm">
+    <div class="px-6 pt-6 pb-4 cupertino-divider" style="border-top:none;border-bottom:1px solid var(--cp-divider)">
+      <h3 class="font-bold text-lg" style="color:var(--cp-text-hi)">Instalar el agente</h3>
+      <p class="text-sm mt-0.5" style="color:var(--cp-text-lo)">Sigue estos pasos para completar la instalación</p>
+    </div>
+    <div class="px-6 py-5 flex flex-col gap-4">
+
+      <!-- Paso 1: Descargando -->
+      <div id="dl-step-1" class="flex items-start gap-3">
+        <div id="dl-step-1-icon" class="shrink-0 mt-0.5">
+          <span class="loading loading-spinner loading-xs" style="color:var(--cp-blue)"></span>
+        </div>
+        <div>
+          <p class="text-sm font-semibold" style="color:var(--cp-text-hi)">Descargando el ejecutable...</p>
+          <p id="dl-step-1-sub" class="text-xs mt-0.5" style="color:var(--cp-text-dim)">Puede tardar unos segundos</p>
+        </div>
+      </div>
+
+      <div id="dl-steps-rest" class="hidden flex flex-col gap-4">
+
+        <!-- Paso 2: Antivirus -->
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center" style="background:color-mix(in srgb,var(--cp-orange) 14%,transparent);border:1px solid color-mix(in srgb,var(--cp-orange) 25%,transparent)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="var(--cp-orange)" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold" style="color:var(--cp-text-hi)">Desactiva el antivirus</p>
+            <p class="text-xs mt-0.5" style="color:var(--cp-text-dim)">El ejecutable puede ser bloqueado por Windows Defender. Desactívalo temporalmente antes de ejecutar.</p>
+          </div>
+        </div>
+
+        <!-- Paso 3: Guardar -->
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center" style="background:color-mix(in srgb,var(--cp-blue) 14%,transparent);border:1px solid color-mix(in srgb,var(--cp-blue) 25%,transparent)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="var(--cp-blue)" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold" style="color:var(--cp-text-hi)">Guarda el archivo</p>
+            <p class="text-xs mt-0.5" style="color:var(--cp-text-dim)">Guárdalo en una carpeta fija, por ejemplo <code style="font-size:0.7rem;background:color-mix(in srgb,white 8%,transparent);padding:1px 5px;border-radius:4px">C:\RedLineGS\</code>. No lo muevas después de instalarlo.</p>
+          </div>
+        </div>
+
+        <!-- Paso 4: Ejecutar -->
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center" style="background:color-mix(in srgb,var(--cp-green) 14%,transparent);border:1px solid color-mix(in srgb,var(--cp-green) 25%,transparent)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="var(--cp-green)" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold" style="color:var(--cp-text-hi)">Ejecuta como administrador</p>
+            <p class="text-xs mt-0.5" style="color:var(--cp-text-dim)">Haz clic derecho en <code style="font-size:0.7rem;background:color-mix(in srgb,white 8%,transparent);padding:1px 5px;border-radius:4px">redline_agent.exe</code> → <em>Ejecutar como administrador</em>. Se abrirá el navegador para que autorices el agente con tu cuenta.</p>
+          </div>
+        </div>
+
+        <!-- Paso 5: Conectar -->
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center" style="background:color-mix(in srgb,var(--cp-text-lo) 10%,transparent);border:1px solid color-mix(in srgb,white 12%,transparent)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="var(--cp-text-mid)" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold" style="color:var(--cp-text-hi)">Vuelve a este panel</p>
+            <p class="text-xs mt-0.5" style="color:var(--cp-text-dim)">Tras autorizar, el panel se activará automáticamente en unos segundos.</p>
+          </div>
+        </div>
+
+      </div><!-- /dl-steps-rest -->
+
+      <!-- Error -->
+      <div id="dl-error" class="hidden flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium" style="background:color-mix(in srgb, var(--cp-red) 12%, transparent);color:var(--cp-red);border:1px solid color-mix(in srgb, var(--cp-red) 20%, transparent)">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span id="dl-error-text"></span>
+      </div>
+
+    </div>
+    <div class="px-6 pb-6 flex justify-end">
+      <button id="btn-dl-close" class="btn-ios-ghost">Cerrar</button>
     </div>
   </div>
   <form method="dialog" class="modal-backdrop"><button>close</button></form>
