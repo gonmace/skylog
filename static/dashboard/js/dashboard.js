@@ -61,7 +61,8 @@
   // ─────────────────────────────────────────────────────────────
   //  Employee
   // ─────────────────────────────────────────────────────────────
-  function initEmployee(profileData) {
+  function initEmployee(initialProfileData) {
+    let profileData = initialProfileData;
     // Populate profile card
     const profileFullname = document.getElementById('profile-fullname');
     const profileEmail    = document.getElementById('profile-email');
@@ -128,6 +129,7 @@
         if (resp.status === 401) { logout(); return false; }
         if (resp.ok) {
           const data = await resp.json();
+          profileData = { ...profileData, ...data };
           if (data.agent_is_active) return true;
         }
       } catch { /* ignorar */ }
