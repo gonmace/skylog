@@ -172,7 +172,7 @@
     }
 
     function updateAgentStatus(agentIsActive) {
-      const neverInstalled = !profileData?.agent_version;
+      const neverInstalled = !profileData?.agent_version && !profileData?.agent_last_seen;
 
       if (neverInstalled && !agentIsActive) {
         setupRequired.classList.remove('hidden');
