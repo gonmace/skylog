@@ -416,7 +416,7 @@
   //  Executive
   // ─────────────────────────────────────────────────────────────
   function initExecutive() {
-    const REFRESH_INTERVAL = 30 * 1000;
+    const REFRESH_INTERVAL = 120 * 1000;
 
     function formatTime(iso) {
       return new Date(iso).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false });
