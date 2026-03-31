@@ -1,7 +1,4 @@
 (() => {
-  const access = localStorage.getItem('access');
-  if (!access) { window.location.href = '/login/'; return; }
-
   // Chrome bloquea peticiones a 127.0.0.1 desde iframes cross-origin (Private Network Access policy)
   const isEmbedded = window.self !== window.top;
 
@@ -27,6 +24,22 @@
   }
 
   async function init() {
+    // Si no hay token en localStorage (p.ej. en iframe tras login OAuth),
+    // intentar reclamarlo desde la sesión Django antes de redirigir al login.
+    if (!localStorage.getItem('access')) {
+      try {
+        const r = await fetch('/api/auth/claim-token/');
+        if (r.ok) {
+          const t = await r.json();
+          if (t.access) {
+            localStorage.setItem('access', t.access);
+            if (t.refresh) localStorage.setItem('refresh', t.refresh);
+          }
+        }
+      } catch {}
+    }
+    if (!localStorage.getItem('access')) { window.location.href = '/login/'; return; }
+
     try {
       const resp = await fetch('/api/auth/me/', { headers: authHeaders() });
       if (resp.status === 401) { logout(); return; }

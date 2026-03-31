@@ -182,7 +182,12 @@ class NextcloudOAuth2CallbackView(View):
             )
             return render(request, 'authentication/agent_setup_success.html')
 
-        # Login normal: renderizar página que guarda los tokens en localStorage y redirige
+        # Login normal: guardar JWT en sesión para que el iframe pueda reclamarlo,
+        # luego renderizar página que también guarda en localStorage y redirige.
+        request.session['pending_iframe_jwt'] = {
+            'access': django_access,
+            'refresh': django_refresh,
+        }
         return_url = settings.NEXTCLOUD_RETURN_URL or request.build_absolute_uri('/dashboard/')
         return render(request, 'authentication/oauth2_success.html', {
             'access': django_access,
@@ -238,6 +243,21 @@ class AgentSetupAuthorizeView(APIView):
 
 
 # ── API Views ─────────────────────────────────────────────────────────────────
+
+class ClaimIframeJWTView(APIView):
+    """
+    El iframe llama este endpoint tras el login OAuth para obtener el JWT
+    almacenado en la sesión del servidor. Uso único: borra el token de la sesión
+    al entregarlo. Requiere la cookie de sesión (SameSite=None en producción).
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        pending = request.session.pop('pending_iframe_jwt', None)
+        if not pending:
+            return Response({'access': None, 'refresh': None})
+        return Response(pending)
+
 
 class MeView(APIView):
     permission_classes = [IsAuthenticated]

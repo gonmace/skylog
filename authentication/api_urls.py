@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     MeView,
+    ClaimIframeJWTView,
     AgentTokenPollView,
     AgentActivateView,
     AgentDownloadView,
@@ -10,6 +11,7 @@ from .views import (
 
 urlpatterns = [
     path('auth/me/', MeView.as_view()),
+    path('auth/claim-token/', ClaimIframeJWTView.as_view()),
     path('auth/token/refresh/', TokenRefreshView.as_view()),
     path('agent/token/', AgentTokenPollView.as_view()),
     path('agent/activate/', AgentActivateView.as_view()),
