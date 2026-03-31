@@ -121,6 +121,13 @@
 
     async function checkAgentAlive() {
       try {
+        const resp = await fetch('/api/auth/me/', { headers: authHeaders() });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.agent_is_active) return true;
+        }
+      } catch { /* ignorar */ }
+      try {
         const resp = await fetch('http://127.0.0.1:7337/ping', { signal: AbortSignal.timeout(2000) });
         return resp.ok;
       } catch { return false; }
