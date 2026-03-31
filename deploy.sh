@@ -37,6 +37,8 @@ git pull origin main
 # fi
 
 # ── 3. Reconstruir y reiniciar contenedores ────────────────────────────────────
+# NOTA: nginx NO se toca en cada deploy. Ejecutar `make nginx` solo manualmente
+#       cuando cambie nginx.conf (primera instalación o cambio de config).
 echo "▶ Reconstruyendo contenedores Docker..."
 docker compose down
 docker compose up -d --build
