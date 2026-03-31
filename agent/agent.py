@@ -57,12 +57,22 @@ DEFAULT_CONFIG = {
 }
 
 
+PRODUCTION_SERVER_URL = 'https://skylog.redlinegs.com'
+
+
 def load_config():
     if not os.path.exists(CONFIG_PATH):
         save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG.copy()
     with open(CONFIG_PATH, encoding='utf-8') as f:
-        return json.load(f)
+        config = json.load(f)
+    # El exe compilado siempre usa el servidor de producción, ignorando lo que
+    # haya en el config (evita configs de dev con localhost que se cuelan).
+    if getattr(sys, 'frozen', False):
+        if config.get('server_url') != PRODUCTION_SERVER_URL:
+            config['server_url'] = PRODUCTION_SERVER_URL
+            save_config(config)
+    return config
 
 
 def save_config(config):
