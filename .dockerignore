@@ -1,0 +1,47 @@
+# Directorios de datos (pueden tener permisos root)
+db/
+volumes/
+
+# Entorno Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Django runtime
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+sent_emails/
+cache/
+*.log
+
+# Node
+node_modules/
+theme/static_src/node_modules/
+
+# CSS compilado (se reconstruye en el stage css-builder)
+theme/static/css/dist/
+
+# Entorno y secretos
+.env
+
+# Control de versiones e IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs y configs locales
+Readme.md
+Plan0.md
+*.conf
