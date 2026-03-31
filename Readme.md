@@ -338,21 +338,32 @@ Para generar `SECRET_KEY`:
 python -c "import secrets; print(secrets.token_urlsafe(50))"
 ```
 
-### 3. Certificado SSL (solo la primera vez)
+### 3. Instalar nginx y obtener SSL (solo la primera vez)
 
-`nginx.conf` ya incluye el bloque HTTPS con Let's Encrypt. Obtén el certificado antes del primer despliegue:
+El orden importa: primero nginx en HTTP, luego certbot, luego nginx en HTTPS.
 
-```bash
-sudo certbot certonly --standalone -d skylog.tudominio.com
-```
-
-### 4. Instalar config de nginx (solo la primera vez)
+**Paso A — instalar config HTTP temporal:**
 
 ```bash
 make nginx
 ```
 
-Genera e instala la config de nginx a partir de `nginx.conf` con los valores del `.env`.
+Como no hay certificado todavía, instala `nginx-http.conf` (solo HTTP). nginx arranca correctamente.
+
+**Paso B — obtener el certificado con certbot:**
+
+```bash
+sudo mkdir -p /var/www/certbot
+sudo certbot certonly --webroot -w /var/www/certbot -d skylog.tudominio.com
+```
+
+**Paso C — activar config HTTPS:**
+
+```bash
+make nginx
+```
+
+Ahora detecta el certificado en `/etc/letsencrypt/live/...` e instala `nginx.conf` con HTTPS, redirect HTTP→HTTPS y headers de seguridad.
 
 ### 5. Desplegar
 
