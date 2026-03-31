@@ -2,6 +2,9 @@
   const access = localStorage.getItem('access');
   if (!access) { window.location.href = '/login/'; return; }
 
+  // Chrome bloquea peticiones a 127.0.0.1 desde iframes cross-origin (Private Network Access policy)
+  const isEmbedded = window.self !== window.top;
+
   function authHeaders() {
     return {
       'Authorization': `Bearer ${localStorage.getItem('access')}`,
@@ -128,10 +131,11 @@
           if (data.agent_is_active) return true;
         }
       } catch { /* ignorar */ }
-      try {
+      if (!isEmbedded) try {
         const resp = await fetch('http://127.0.0.1:7337/ping', { signal: AbortSignal.timeout(2000) });
         return resp.ok;
       } catch { return false; }
+      return false;
     }
 
     let setupPollInterval = null;
@@ -229,7 +233,7 @@
         const data = await resp.json();
         if (!resp.ok) { alert(data.error || 'Error al iniciar jornada'); btnStart.disabled = false; return; }
         showActive(data.workday_id, data.start_time);
-        fetch('http://127.0.0.1:7337/trigger', { method: 'POST' }).catch(() => {});
+        if (!isEmbedded) fetch('http://127.0.0.1:7337/trigger', { method: 'POST' }).catch(() => {});
       } catch (e) { alert('Error de conexión'); btnStart.disabled = false; }
     }
 

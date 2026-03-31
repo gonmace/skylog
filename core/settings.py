@@ -150,6 +150,10 @@ else:
 # ── Seguridad ──────────────────────────────────────────────────────────────────
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
+# SameSite=None permite que las cookies se envíen en el iframe cross-origin (sky.redlinegs.com → skylog.redlinegs.com)
+# Requiere Secure=True, que ya está garantizado por CSRF_COOKIE_SECURE/SESSION_COOKIE_SECURE en producción
+CSRF_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SAMESITE = 'None'
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
 
 if not DEBUG:
@@ -174,7 +178,7 @@ CSP_SCRIPT_SRC = ("'self'",)
 CSP_STYLE_SRC = ("'self'",)
 CSP_IMG_SRC = ("'self'", "data:")
 CSP_FONT_SRC = ("'self'",)
-CSP_CONNECT_SRC = ("'self'",) if not DEBUG else ("'self'", "ws://localhost:*", "ws://127.0.0.1:*")
+CSP_CONNECT_SRC = ("'self'", "http://127.0.0.1:7337") if not DEBUG else ("'self'", "ws://localhost:*", "ws://127.0.0.1:*", "http://127.0.0.1:7337")
 CSP_FORM_ACTION = ("'self'", "https://sky.redlinegs.com")
 CSP_OBJECT_SRC = ("'none'",)
 CSP_BASE_URI = ("'self'",)
