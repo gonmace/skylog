@@ -95,7 +95,12 @@ class NextcloudOAuth2AuthorizeView(View):
             'redirect_uri': redirect_uri,
             'state': state,
         })
-        return redirect(f"{settings.NEXTCLOUD_SERVER_URL}/apps/oauth2/authorize?{params}")
+        oauth2_url = f"{settings.NEXTCLOUD_SERVER_URL}/apps/oauth2/authorize?{params}"
+        # Renderizar página que navega el frame superior a Nextcloud.
+        # Un 302 directo navigaría el iframe, donde el cookie de sesión de Nextcloud
+        # no se envía (SameSite=Lax en sub-frames cross-origin) → Nextcloud redirige
+        # al login en lugar de mostrar la pantalla de autorización.
+        return render(request, 'authentication/oauth2_redirect.html', {'url': oauth2_url})
 
 
 class NextcloudOAuth2CallbackView(View):
