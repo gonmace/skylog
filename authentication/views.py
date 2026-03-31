@@ -166,7 +166,7 @@ class NextcloudOAuth2CallbackView(View):
             return render(request, 'authentication/agent_setup_success.html')
 
         # Login normal: renderizar página que guarda los tokens en localStorage y redirige
-        return_url = settings.NEXTCLOUD_RETURN_URL or '/dashboard/'
+        return_url = settings.NEXTCLOUD_RETURN_URL or request.build_absolute_uri('/dashboard/')
         return render(request, 'authentication/oauth2_success.html', {
             'access': django_access,
             'refresh': django_refresh,

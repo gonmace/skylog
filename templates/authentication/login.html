@@ -7,7 +7,7 @@
 <script>
   // Si ya tiene sesión, ir directamente al dashboard
   if (localStorage.getItem('access')) {
-    (window.top || window).location.href = '/dashboard/';
+    window.location.href = '/dashboard/';
   }
 </script>
 <div class="min-h-screen bg-base-200 flex items-center justify-center p-4">

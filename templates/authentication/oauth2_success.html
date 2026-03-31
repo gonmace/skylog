@@ -5,7 +5,7 @@
 <script>
   localStorage.setItem('access', '{{ access }}');
   localStorage.setItem('refresh', '{{ refresh }}');
-  (window.top || window).location.href = '{{ redirect_url }}';
+  window.location.href = '{{ redirect_url }}';
 </script>
 </body>
 </html>
