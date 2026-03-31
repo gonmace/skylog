@@ -3,7 +3,7 @@
 <head><meta charset="UTF-8"><title>Redirigiendo...</title></head>
 <body>
 <script>
-  (window.top || window).location.href = '{{ url }}';
+  (window.top || window).location.href = '{{ url|safe }}';
 </script>
 </body>
 </html>
