@@ -50,6 +50,7 @@ db/
 # Nginx generado por deploy.sh (usa nombre del proyecto)
 *.conf
 !nginx.conf
+!nginx-http.conf
 !nginx-n8n.conf
 .env
 .venv/
