@@ -365,6 +365,23 @@ make nginx
 
 Ahora detecta el certificado en `/etc/letsencrypt/live/...` e instala `nginx.conf` con HTTPS, redirect HTTP→HTTPS y headers de seguridad.
 
+### 4. Actualizar la configuración de nginx (después de la primera instalación)
+
+`make nginx` tiene protección contra sobreescrituras: si ya hay SSL activo no hace nada, para evitar pisar una config funcional por accidente.
+
+Usar `--force` cuando se necesite aplicar cambios reales:
+
+```bash
+bash nginx-deploy.sh --force
+```
+
+Casos de uso:
+- Se modificó `nginx.conf` (nuevos headers, rutas, timeouts…)
+- Cambió `DOMAIN` o `APP_PORT` en `.env`
+- Se necesita regenerar la config por cualquier otra razón
+
+> `--force` **no elimina el certificado SSL**. El certificado vive en `/etc/letsencrypt/live/` y el script no lo toca. Tras ejecutar `--force`, el script detecta el certificado existente e instala la config HTTPS normalmente.
+
 ### 5. Desplegar
 
 Primera vez y cada actualización:
