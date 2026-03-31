@@ -377,12 +377,6 @@
         </div>
 
         <div class="px-6 py-4 mt-2 cupertino-divider flex justify-end gap-2">
-          <button id="btn-download-agent" class="hidden btn-ios-ghost shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-            </svg>
-            Descargar agente
-          </button>
           <button id="btn-start" class="hidden btn-ios-success">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
@@ -422,12 +416,20 @@
               </div>
             </div>
           </div>
-          <button id="btn-update-agent" class="hidden btn-ios-ghost" style="color:var(--cp-orange);border-color:color-mix(in srgb, var(--cp-orange) 25%, transparent)">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-            </svg>
-            Actualizar
-          </button>
+          <div class="flex gap-2">
+            <button id="btn-download-agent" class="hidden btn-ios-ghost shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Descargar
+            </button>
+            <button id="btn-update-agent" class="hidden btn-ios-ghost" style="color:var(--cp-orange);border-color:color-mix(in srgb, var(--cp-orange) 25%, transparent)">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Actualizar
+            </button>
+          </div>
         </div>
       </div>
 
