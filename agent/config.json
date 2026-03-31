@@ -1,0 +1,8 @@
+{
+  "server_url": "http://localhost:8000",
+  "jwt_token": "",
+  "capture_interval_minutes": 1,
+  "employee_name": "gmartinez@redlinegs.com",
+  "employee_email": "gmartinez@redlinegs.com",
+  "refresh_token": ""
+}
