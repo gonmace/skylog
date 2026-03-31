@@ -90,7 +90,7 @@ class ScreenshotUploadView(APIView):
                  'julio','agosto','septiembre','octubre','noviembre','diciembre']
         now = timezone.localtime(timezone.now())
         display_name = employee.full_name
-        year_month   = f"{now.strftime('%y')}-{MESES[now.month - 1]}"  # ej. 26-marzo
+        year_month   = f"{now.strftime('%Y')}-{MESES[now.month - 1]}"  # ej. 2026-marzo
         day_time     = now.strftime('%d-%Hh%M')                         # ej. 29-21h06
         rel_path = f"{display_name}/{year_month}/{day_time}.jpg"
 
