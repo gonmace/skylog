@@ -122,6 +122,7 @@
     async function checkAgentAlive() {
       try {
         const resp = await fetch('/api/auth/me/', { headers: authHeaders() });
+        if (resp.status === 401) { logout(); return false; }
         if (resp.ok) {
           const data = await resp.json();
           if (data.agent_is_active) return true;
