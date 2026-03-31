@@ -41,7 +41,7 @@ def _fetch_nextcloud_user(login_name, bearer_token):
             ocs_user = resp.json().get('ocs', {}).get('data', {})
             display_name = ocs_user.get('displayname') or login_name
             email = ocs_user.get('email') or ''
-            is_executive = 'skylog' in (ocs_user.get('groups') or [])
+            is_executive = 'Executives' in (ocs_user.get('groups') or [])
     except Exception:
         pass
     return display_name, email, is_executive
