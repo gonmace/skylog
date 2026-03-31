@@ -1,47 +1,105 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Iniciar sesión — RedLine GS{% endblock %}
+{% block title %}Iniciar sesión{% endblock %}
 
 {% block content %}
 <script>
-  // Si ya tiene sesión, ir directamente al dashboard
   if (localStorage.getItem('access')) {
     window.location.href = '/dashboard/';
   }
 </script>
-<div class="min-h-screen bg-base-200 flex items-center justify-center p-4">
 
-  <div class="w-full max-w-sm">
+<style>
+  .login-page {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(160deg, var(--cp-bg-start) 0%, var(--cp-bg-end) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .login-card {
+    background: var(--cp-surface);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--cp-surface-border);
+    border-radius: 24px;
+    padding: 48px 36px;
+    width: 100%;
+    max-width: 360px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+  }
+  .login-logo {
+    width: 72px;
+    height: 72px;
+    background: var(--color-primary);
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  .login-logo img {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    filter: brightness(0) invert(1);
+  }
+  .login-subtitle {
+    font-size: 0.875rem;
+    color: var(--cp-text-lo);
+    text-align: center;
+    margin-top: -20px;
+  }
+  .login-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 20px;
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: 14px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: opacity 0.15s;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+  }
+  .login-btn:hover { opacity: 0.88; }
+  .login-footer {
+    font-size: 0.75rem;
+    color: var(--cp-text-dim);
+    text-align: center;
+  }
+  .login-footer span { color: var(--cp-text-lo); }
+</style>
 
-    <div class="bg-base-100 rounded-2xl shadow-xl overflow-hidden">
-      <div class="h-1.5 bg-primary w-full"></div>
+<div class="login-page">
+  <div class="login-card">
 
-      <div class="px-8 py-10 flex flex-col items-center gap-7">
-
-        <div class="flex flex-col items-center gap-3">
-          <div class="bg-primary rounded-xl p-3 shadow-md">
-            <img src="{% static 'img/favicon.png' %}" alt="RedLine GS" class="h-10 w-10 object-contain brightness-0 invert">
-          </div>
-          <div class="text-center">
-            <h1 class="text-2xl font-extrabold text-base-content tracking-tight">RedLine GS</h1>
-            <p class="text-sm text-base-content/50 mt-0.5">Control de jornada laboral</p>
-          </div>
-        </div>
-
-        <a href="{% url 'authentication:oauth2_authorize' %}" class="btn btn-primary w-full rounded-xl gap-2 shadow-sm">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
-          </svg>
-          Entrar con Nextcloud
-        </a>
-
-        <p class="text-xs text-base-content/35 text-center">
-          Usa tu cuenta de <span class="font-semibold">sky.redlinegs.com</span>
-        </p>
-
-      </div>
+    <div class="login-logo">
+      <img src="{% static 'img/favicon.png' %}" alt="Logo">
     </div>
+
+    <p class="login-subtitle">Control de jornada laboral</p>
+
+    <a href="{% url 'authentication:oauth2_authorize' %}" class="login-btn">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
+      </svg>
+      Entrar con Nextcloud
+    </a>
+
+    <p class="login-footer">Usa tu cuenta de <span>sky.redlinegs.com</span></p>
 
   </div>
 </div>
