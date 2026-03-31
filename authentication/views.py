@@ -23,10 +23,17 @@ from .serializers import EmployeeSerializer
 # ── Helpers compartidos ───────────────────────────────────────────────────────
 
 def _fetch_nextcloud_user(login_name, bearer_token):
-    """Obtiene perfil + grupos del usuario desde la OCS API de Nextcloud."""
+    """Obtiene perfil + grupos del usuario desde la OCS API de Nextcloud.
+
+    Roles según grupos de Nextcloud:
+      - skylog + Executives → ejecutivo (is_executive=True, skylog_access=True)
+      - skylog solo          → empleado  (is_executive=False, skylog_access=True)
+      - ninguno              → sin acceso (is_executive=False, skylog_access=False)
+    """
     display_name = login_name
     email = ''
     is_executive = False
+    skylog_access = False
     try:
         ocs_url = f"{settings.NEXTCLOUD_SERVER_URL}/ocs/v1.php/cloud/users/{login_name}?format=json"
         resp = http_requests.get(
@@ -41,13 +48,15 @@ def _fetch_nextcloud_user(login_name, bearer_token):
             ocs_user = resp.json().get('ocs', {}).get('data', {})
             display_name = ocs_user.get('displayname') or login_name
             email = ocs_user.get('email') or ''
-            is_executive = 'Executives' in (ocs_user.get('groups') or [])
+            groups = ocs_user.get('groups') or []
+            skylog_access = 'skylog' in groups
+            is_executive = skylog_access and 'Executives' in groups
     except Exception:
         pass
-    return display_name, email, is_executive
+    return display_name, email, is_executive, skylog_access
 
 
-def _upsert_user_and_employee(login_name, display_name, email, is_executive):
+def _upsert_user_and_employee(login_name, display_name, email, is_executive, skylog_access):
     """Crea o actualiza el User de Django y el Employee asociado."""
     user, _ = User.objects.get_or_create(username=login_name)
     if email:
@@ -68,6 +77,9 @@ def _upsert_user_and_employee(login_name, display_name, email, is_executive):
     if employee.is_executive != is_executive:
         employee.is_executive = is_executive
         update_fields.append('is_executive')
+    if employee.skylog_access != skylog_access:
+        employee.skylog_access = skylog_access
+        update_fields.append('skylog_access')
     if update_fields:
         employee.save(update_fields=update_fields)
     return user, employee
@@ -151,10 +163,10 @@ class NextcloudOAuth2CallbackView(View):
                           {'error': 'Respuesta inválida de Nextcloud.'})
 
         # Obtener perfil del usuario
-        display_name, email, is_executive = _fetch_nextcloud_user(login_name, nc_access_token)
+        display_name, email, is_executive, skylog_access = _fetch_nextcloud_user(login_name, nc_access_token)
 
         # Crear/actualizar usuario en Django
-        user, employee = _upsert_user_and_employee(login_name, display_name, email, is_executive)
+        user, employee = _upsert_user_and_employee(login_name, display_name, email, is_executive, skylog_access)
 
         # Emitir JWT de Django
         refresh = RefreshToken.for_user(user)
