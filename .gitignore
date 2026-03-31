@@ -8,6 +8,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+!agent/dist/
+!agent/dist/redline_agent.exe
 .eggs/
 
 # Django
