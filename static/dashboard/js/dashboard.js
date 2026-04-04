@@ -332,12 +332,28 @@
       });
     }
 
+    function wordCount(text) {
+      return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+    }
+
     async function endWorkday() {
       const done    = activitiesDone.value.trim();
       const planned = activitiesPlanned.value.trim();
       if (!done || !planned) {
         modalError.classList.remove('hidden');
         modalErrorText.textContent = 'Completa ambos campos antes de finalizar.';
+        return;
+      }
+      if (wordCount(done) < 10) {
+        modalError.classList.remove('hidden');
+        modalErrorText.textContent = `"¿Qué hiciste hoy?" requiere al menos 10 palabras (llevas ${wordCount(done)}).`;
+        activitiesDone.focus();
+        return;
+      }
+      if (wordCount(planned) < 10) {
+        modalError.classList.remove('hidden');
+        modalErrorText.textContent = `"¿Qué planeas mañana?" requiere al menos 10 palabras (llevas ${wordCount(planned)}).`;
+        activitiesPlanned.focus();
         return;
       }
       modalError.classList.add('hidden');
