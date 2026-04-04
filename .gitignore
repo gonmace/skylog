@@ -10,6 +10,7 @@ dist/
 build/
 !agent/dist/
 !agent/dist/redline_agent.exe
+!agent/dist/RedLineGS_setup.exe
 .eggs/
 
 # Django

@@ -3,6 +3,11 @@
 <head><meta charset="UTF-8"><title>Redirigiendo...</title></head>
 <body>
 <script>
+  // Guardar en cookies (funciona en iframe cross-origin con SameSite=None)
+  var secure = location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = 'access={{ access }}; path=/; SameSite=None; max-age=7200' + secure;
+  document.cookie = 'refresh={{ refresh }}; path=/; SameSite=None; max-age=604800' + secure;
+  // También en localStorage como fallback
   localStorage.setItem('access', '{{ access }}');
   localStorage.setItem('refresh', '{{ refresh }}');
   (window.top || window).location.href = '{{ redirect_url }}';

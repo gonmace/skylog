@@ -40,6 +40,17 @@ superuser:
 collect:
 	python manage.py collectstatic --noinput
 
+# ── Agente Windows ───────────────────────────────────────────────────────────
+agent-install:
+	pip install -r agent/requirements-agent.txt
+
+agent-logo:
+	python -c "from PIL import Image; img = Image.open('static/img/logo RL.png').convert('RGBA'); bg = Image.new('RGB', img.size, (255, 255, 255)); bg.paste(img, mask=img.split()[3]); bg.save('agent/logo.bmp')"
+
+agent-build: agent-logo
+	cd agent && pyinstaller redline_agent.spec
+	"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" agent\installer.iss
+
 # ── Producción ────────────────────────────────────────────────────────────────
 deploy:
 	bash deploy.sh
@@ -53,4 +64,4 @@ logs:
 down:
 	docker compose down
 
-.PHONY: dev-up dev-down dev-logs install dev tailwind migrate migrations shell superuser collect deploy nginx logs down
+.PHONY: dev-up dev-down dev-logs install dev tailwind migrate migrations shell superuser collect deploy nginx logs down agent-install agent-logo agent-build

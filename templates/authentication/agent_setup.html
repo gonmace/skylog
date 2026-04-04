@@ -72,8 +72,9 @@
     if (msg) document.getElementById('error-text').textContent = msg;
   };
 
-  // Si tiene JWT en localStorage, autorizar directamente sin OAuth2
-  const access = localStorage.getItem('access');
+  // Si tiene JWT en cookie o localStorage, autorizar directamente sin OAuth2
+  const cookieMatch = document.cookie.match(/(?:^|; )access=([^;]*)/);
+  const access = (cookieMatch && cookieMatch[1]) || localStorage.getItem('access');
   if (access && !forceOAuth) {
     try {
       const resp = await fetch('/api/agent/setup/', {

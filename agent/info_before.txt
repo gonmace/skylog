@@ -1,0 +1,3 @@
+Skylog mantiene a todo el equipo sincronizado: sabe quién está conectado, cómo está su jornada y qué tiene entre manos.
+
+Esa visibilidad compartida —y el historial que va acumulando— es la base sobre la que nuestro agente de IA trabajará con contexto real, no con suposiciones.

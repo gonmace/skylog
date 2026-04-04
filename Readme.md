@@ -1,6 +1,6 @@
 # Skylog
 
-Sistema de registro de jornadas y monitoreo de actividad para empleados. Un agente Windows captura pantallas en segundo plano y las almacena en el servidor o en Nextcloud. Los ejecutivos pueden ver el estado de su equipo en tiempo real desde el dashboard.
+Skylog mantiene a todo el equipo sincronizado: sabe quién está conectado, cómo está su jornada y qué tiene entre manos. Esa visibilidad compartida —y el historial que va acumulando— es la base sobre la que nuestro agente de IA trabajará con contexto real, no con suposiciones.
 
 ## Stack
 
@@ -44,6 +44,7 @@ Sistema de registro de jornadas y monitoreo de actividad para empleados. Un agen
 │   ├── version.py      # Fuente única de la versión del agente
 │   ├── requirements-agent.txt
 │   ├── redline_agent.spec  # Config PyInstaller
+│   ├── installer.iss   # Script Inno Setup (genera RedLineGS_setup.exe)
 │   └── build.bat       # Script de compilación
 ├── templates/
 │   ├── base.html
@@ -240,12 +241,50 @@ pip install -r requirements-agent.txt
 build.bat    # genera dist/redline_agent.exe
 ```
 
-### Instalación en Windows
+### Crear el instalador (.exe setup) con Inno Setup
+
+El archivo `agent/installer.iss` define un instalador completo para Windows usando **Inno Setup**. El instalador:
+
+- Muestra una pantalla de bienvenida con descripción del producto (`agent/info_before.txt`)
+- Copia `redline_agent.exe` a `%ProgramFiles%\RedLineGS\`
+- Copia `config.json` (si está junto al setup.exe) a `%AppData%\RedLineGS\config.json`
+- Registra el autostart en `HKCU` vía sección `[Registry]` (se limpia automáticamente al desinstalar)
+- Cierra silenciosamente cualquier versión anterior del agente antes de instalar
+- Arranca el agente automáticamente al finalizar
+- Abre el dashboard en el navegador al presionar **Finalizar**
+
+**Archivos necesarios en `agent/` para compilar:**
+
+| Archivo | Descripción |
+|---|---|
+| `dist/redline_agent.exe` | Agente compilado con PyInstaller |
+| `redlinegs.ico` | Ícono del instalador |
+| `logo.bmp` | Logo para la pantalla de bienvenida (generado con `make agent-logo`) |
+| `info_before.txt` | Texto de la pantalla de bienvenida |
+
+**Generar `RedLineGS_setup.exe`:**
 
 ```bash
-redline_agent.exe --install    # agrega al inicio de sesión (HKCU, sin admin)
-redline_agent.exe --uninstall  # quita del inicio de sesión
+# Todo en un comando (genera logo.bmp + compila exe + compila installer):
+make agent-build
+
+# O paso a paso:
+make agent-logo                  # convierte logo PNG a BMP
+cd agent && pyinstaller redline_agent.spec   # genera dist/redline_agent.exe
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" agent/installer.iss
 ```
+
+Requiere [Inno Setup 6](https://jrsoftware.org/isdl.php) instalado en la ruta por defecto.
+
+**Distribución al empleado:**
+
+El empleado recibe un ZIP con dos archivos:
+```
+RedLineGS_setup.exe   ← el instalador generado por Inno Setup
+config.json           ← generado por el dashboard al crear el token de activación
+```
+
+El instalador detecta automáticamente el `config.json` junto a sí mismo, lo copia a `%AppData%\RedLineGS\` y el agente se activa silenciosamente sin abrir el navegador.
 
 ### Comportamiento
 
@@ -468,6 +507,9 @@ make nginx        # instala/actualiza config de nginx en el VPS
 make deploy       # bash deploy.sh
 make logs         # docker compose logs -f django
 make down         # docker compose down
+make agent-install  # pip install -r agent/requirements-agent.txt
+make agent-logo     # convierte logo PNG → BMP para el installer
+make agent-build    # genera logo.bmp + redline_agent.exe + RedLineGS_setup.exe
 ```
 
 ```bash

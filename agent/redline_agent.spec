@@ -1,25 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 
-from PyInstaller.utils.hooks import collect_all
-
-pil_datas, pil_binaries, pil_hiddenimports = collect_all('PIL')
-req_datas, req_binaries, req_hiddenimports = collect_all('requests')
-
 a = Analysis(
     ['agent.py'],
     pathex=[],
-    binaries=[] + pil_binaries + req_binaries,
-    datas=[('version.py', '.')] + pil_datas + req_datas,
-    hiddenimports=[
-        'websocket',
-        'websocket._abnf',
-        'websocket._core',
-        'winreg',
-        'certifi',
-        'charset_normalizer',
-        'idna',
-    ] + pil_hiddenimports + req_hiddenimports,
+    binaries=[],
+    datas=[],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -48,4 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['redlinegs.ico'],
 )

@@ -1,0 +1,9 @@
+{
+  "server_url": "https://skylog.redlinegs.com",
+  "jwt_token": "",
+  "activation_token": "",
+  "refresh_token": "",
+  "capture_interval_minutes": 30,
+  "employee_name": "",
+  "employee_email": ""
+}

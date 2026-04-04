@@ -61,11 +61,37 @@ PRODUCTION_SERVER_URL = 'https://skylog.redlinegs.com'
 
 
 def load_config():
+    # Si no existe un config en AppData, buscar config.json junto al exe (viene en el ZIP de descarga)
     if not os.path.exists(CONFIG_PATH):
+        bundled = os.path.join(BASE_DIR, 'config.json')
+        if os.path.exists(bundled):
+            try:
+                with open(bundled, encoding='utf-8') as f:
+                    config = json.load(f)
+                save_config(config)
+                return config
+            except Exception:
+                pass
         save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG.copy()
+
     with open(CONFIG_PATH, encoding='utf-8') as f:
         config = json.load(f)
+
+    # Si no hay jwt ni activation_token, intentar recuperar activation_token del bundled config
+    if not config.get('jwt_token', '').strip() and not config.get('activation_token', '').strip():
+        bundled = os.path.join(BASE_DIR, 'config.json')
+        if os.path.exists(bundled):
+            try:
+                with open(bundled, encoding='utf-8') as f:
+                    bundled_config = json.load(f)
+                token = bundled_config.get('activation_token', '').strip()
+                if token:
+                    config['activation_token'] = token
+                    save_config(config)
+            except Exception:
+                pass
+
     # El exe compilado siempre usa el servidor de producción, ignorando lo que
     # haya en el config (evita configs de dev con localhost que se cuelan).
     if getattr(sys, 'frozen', False):
@@ -413,7 +439,19 @@ def run():
 
     config = load_config()
 
-    # Activación: si no hay token, abrir navegador para login con Nextcloud
+    # Activación silenciosa con token pre-configurado (viene en el ZIP de descarga)
+    if config.get('activation_token', '').strip() and not config.get('jwt_token', '').strip():
+        log.info('Token de activación encontrado. Activando agente silenciosamente...')
+        result = activate_with_token(config)
+        if result:
+            config = result
+            log.info('Agente activado correctamente.')
+        else:
+            log.warning('Activación con token falló (token expirado o inválido). Intentando activación manual...')
+            config['activation_token'] = ''
+            save_config(config)
+
+    # Fallback: si aún no hay JWT, abrir navegador para login con Nextcloud
     if needs_setup(config):
         config = run_setup(config)
         if not config:

@@ -1,4 +1,7 @@
+import io
+import json
 import secrets
+import zipfile
 import requests as http_requests
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -10,14 +13,31 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.throttling import AnonRateThrottle
-
-
-class AgentPollThrottle(AnonRateThrottle):
-    rate = '30/min'
+from rest_framework_simplejwt.views import TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from employees.models import Employee
 from .models import AgentRegistration, AgentActivationToken
 from .serializers import EmployeeSerializer
+
+
+class AgentPollThrottle(AnonRateThrottle):
+    rate = '30/min'
+
+
+# ── JWT Cookie helpers ────────────────────────────────────────────────────────
+
+def _set_jwt_cookies(response, access, refresh):
+    """Guarda access y refresh token como cookies SameSite=None para iframe cross-origin."""
+    secure = not settings.DEBUG
+    common = dict(path='/', samesite='None', httponly=False, secure=secure)
+    response.set_cookie('access',  access,  max_age=7200,   **common)
+    response.set_cookie('refresh', refresh, max_age=604800, **common)
+
+
+def _clear_jwt_cookies(response):
+    secure = not settings.DEBUG
+    response.set_cookie('access',  '', max_age=0, path='/', samesite='None', secure=secure)
+    response.set_cookie('refresh', '', max_age=0, path='/', samesite='None', secure=secure)
 
 
 # ── Helpers compartidos ───────────────────────────────────────────────────────
@@ -189,11 +209,13 @@ class NextcloudOAuth2CallbackView(View):
             'refresh': django_refresh,
         }
         return_url = settings.NEXTCLOUD_RETURN_URL or request.build_absolute_uri('/dashboard/')
-        return render(request, 'authentication/oauth2_success.html', {
+        response = render(request, 'authentication/oauth2_success.html', {
             'access': django_access,
             'refresh': django_refresh,
             'redirect_url': return_url,
         })
+        _set_jwt_cookies(response, django_access, django_refresh)
+        return response
 
 
 class AgentSetupView(View):
@@ -256,7 +278,9 @@ class ClaimIframeJWTView(APIView):
         pending = request.session.pop('pending_iframe_jwt', None)
         if not pending:
             return Response({'access': None, 'refresh': None})
-        return Response(pending)
+        response = Response(pending)
+        _set_jwt_cookies(response, pending['access'], pending['refresh'])
+        return response
 
 
 class MeView(APIView):
@@ -296,6 +320,16 @@ class AgentTokenPollView(APIView):
         return Response({'status': 'ok', 'access': access, 'refresh': refresh})
 
 
+class CookieTokenRefreshView(TokenRefreshView):
+    """TokenRefreshView que ademas setea los tokens como cookies SameSite=None."""
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            _set_jwt_cookies(response, response.data.get('access', ''), response.data.get('refresh', ''))
+        return response
+
+
 class AgentActivateView(APIView):
     """El agente envía su activation_token y recibe el JWT. Sin interacción del usuario."""
     permission_classes = [AllowAny]
@@ -329,18 +363,45 @@ class AgentActivateView(APIView):
 
 
 class AgentDownloadView(APIView):
-    """Descarga el ejecutable del agente. La activación se completa en el navegador al ejecutarlo."""
+    """Descarga un ZIP con el ejecutable del agente y un config.json pre-activado."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         import os
-        from django.conf import settings
-        from django.http import FileResponse
+        from django.http import HttpResponse
 
-        exe_path = os.path.join(settings.BASE_DIR, 'agent', 'dist', 'redline_agent.exe')
-        if not os.path.exists(exe_path):
+        # Preferir el installer de Inno Setup; fallback al exe directo para dev
+        installer_path = os.path.join(settings.BASE_DIR, 'agent', 'dist', 'RedLineGS_setup.exe')
+        exe_path       = os.path.join(settings.BASE_DIR, 'agent', 'dist', 'redline_agent.exe')
+        use_installer  = os.path.exists(installer_path)
+        agent_file     = installer_path if use_installer else exe_path
+        agent_filename = 'RedLineGS_setup.exe' if use_installer else 'redline_agent.exe'
+
+        if not os.path.exists(agent_file):
             return Response({'error': 'El agente compilado no está disponible aún'}, status=503)
 
-        response = FileResponse(open(exe_path, 'rb'), content_type='application/octet-stream')
-        response['Content-Disposition'] = 'attachment; filename="redline_agent.exe"'
+        try:
+            employee = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
+
+        activation_token = AgentActivationToken.create_for_employee(employee)
+
+        server_url = request.build_absolute_uri('/').rstrip('/')
+        config_data = {
+            'server_url': server_url,
+            'jwt_token': '',
+            'activation_token': activation_token.token,
+            'capture_interval_minutes': 30,
+        }
+        config_bytes = json.dumps(config_data, indent=2, ensure_ascii=False).encode('utf-8')
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(agent_file, agent_filename)
+            zf.writestr('config.json', config_bytes)
+        buf.seek(0)
+
+        response = HttpResponse(buf.read(), content_type='application/zip')
+        response['Content-Disposition'] = 'attachment; filename="RedLineGS.zip"'
         return response
