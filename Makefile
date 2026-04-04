@@ -37,6 +37,9 @@ shell:
 superuser:
 	python manage.py createsuperuser
 
+seed-dev:
+	python manage.py seed_dev_workdays --clear
+
 collect:
 	python manage.py collectstatic --noinput
 

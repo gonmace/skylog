@@ -3,7 +3,8 @@ from .views import (
     WorkdayStartView, WorkdayEndView, ActiveWorkdayView, LastReportView,
     EmployeeOverviewView, CaptureNowView, EmployeeScreenshotsToggleView,
     EmployeeSkylogToggleView, SendMessageView, PendingMessagesView,
-    AcknowledgeMessageView,
+    AcknowledgeMessageView, WorkdayMonthlyView, EmployeeMonthlyView,
+    CalendarNotesView, CalendarNoteDetailView, EmployeeLeavesView, EmployeeLeaveDetailView,
 )
 
 urlpatterns = [
@@ -18,4 +19,10 @@ urlpatterns = [
     path('employees/<int:employee_id>/message/', SendMessageView.as_view()),
     path('messages/pending/', PendingMessagesView.as_view()),
     path('messages/<int:message_id>/acknowledge/', AcknowledgeMessageView.as_view()),
+    path('workday/monthly/', WorkdayMonthlyView.as_view()),
+    path('employees/<int:employee_id>/monthly/', EmployeeMonthlyView.as_view()),
+    path('calendar/notes/', CalendarNotesView.as_view()),
+    path('calendar/notes/<int:note_id>/', CalendarNoteDetailView.as_view()),
+    path('employees/<int:employee_id>/leaves/', EmployeeLeavesView.as_view()),
+    path('employees/<int:employee_id>/leaves/<int:leave_id>/', EmployeeLeaveDetailView.as_view()),
 ]

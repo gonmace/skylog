@@ -5,8 +5,8 @@ Skylog mantiene a todo el equipo sincronizado: sabe quién está conectado, cóm
 ## Stack
 
 - **Backend:** Django 5.1, Django Channels 4 (ASGI), Daphne
-- **Autenticación:** Nextcloud OAuth2 + JWT (SimpleJWT con blacklist)
-- **WebSockets:** Django Channels + Redis (estado del agente en tiempo real, capturas inmediatas)
+- **Autenticación:** Nextcloud OAuth2 + JWT (SimpleJWT con blacklist) + login username/password para usuarios móviles
+- **WebSockets:** Django Channels + Redis (estado del agente en tiempo real, capturas inmediatas, notificaciones de mensajes)
 - **Base de datos:** SQLite (dev local) / PostgreSQL 17 (Docker y prod)
 - **Estilos:** Tailwind CSS v4 + DaisyUI v5
 - **Archivos estáticos:** Whitenoise
@@ -24,19 +24,19 @@ Skylog mantiene a todo el equipo sincronizado: sabe quién está conectado, cóm
 │   ├── urls.py         # URLs raíz + health check (/health/)
 │   └── asgi.py         # ProtocolTypeRouter HTTP + WebSocket
 ├── agent_ws/           # App Django Channels
-│   ├── consumers.py    # AgentConsumer: marca agent_online=True/False en connect/disconnect
+│   ├── consumers.py    # AgentConsumer + DashboardConsumer (notificaciones browser)
 │   ├── auth.py         # Validación JWT en handshake WS
-│   └── routing.py      # ws/agent/<employee_id>/
+│   └── routing.py      # ws/agent/ + ws/dashboard/
 ├── authentication/     # OAuth2, activación del agente, API auth
-│   ├── views.py        # OAuth2 flow, AgentTokenPollView, AgentDownloadView
+│   ├── views.py        # OAuth2 flow, AgentTokenPollView, MobileLoginView, DevLoginView
 │   ├── api_urls.py     # /api/auth/...
 │   └── models.py       # AgentRegistration, AgentActivationToken
 ├── employees/          # Modelo Employee (vinculado a User de Django)
-│   └── models.py       # Employee: agent_online, agent_last_seen, agent_version, capturas, etc.
+│   └── models.py       # Employee: agent_online, is_mobile, capturas, etc.
 ├── screenshots/        # Modelo Screenshot + upload a Nextcloud/local
 ├── workdays/           # Jornadas laborales
-│   ├── models.py       # Workday, InactivityPeriod, DailyReport, CaptureConfig
-│   ├── views.py        # API REST de jornadas + EmployeeOverviewView
+│   ├── models.py       # Workday, InactivityPeriod, DailyReport, CalendarNote, EmployeeLeave
+│   ├── views.py        # API REST de jornadas, calendarios, notas, ausencias
 │   └── api_urls.py     # /api/workday/...
 ├── home/               # Landing page pública
 ├── agent/              # Agente Windows (Python → .exe)
@@ -50,6 +50,8 @@ Skylog mantiene a todo el equipo sincronizado: sabe quién está conectado, cóm
 │   ├── base.html
 │   ├── dashboard/
 │   │   └── dashboard.html  # Template único: employee + executive + no-access
+│   ├── mobile/
+│   │   └── dashboard.html  # SPA móvil autónoma (login + jornada + GPS)
 │   └── authentication/
 ├── static/
 │   └── dashboard/js/dashboard.js  # SPA logic: vista employee/executive por JS
@@ -69,37 +71,48 @@ Skylog mantiene a todo el equipo sincronizado: sabe quién está conectado, cóm
 
 ## Roles y autenticación
 
-El sistema usa **Nextcloud OAuth2** para autenticar usuarios. No hay registro propio: los empleados se crean automáticamente al hacer login la primera vez.
-
 | Rol | Condición | Acceso |
 |---|---|---|
 | **Ejecutivo** | Pertenece al grupo `skylog` en Nextcloud | Dashboard ejecutivo: ve a todos los empleados en tiempo real |
 | **Empleado** | Cualquier otro usuario de Nextcloud | Dashboard propio: jornadas, capturas, estado del agente |
+| **Empleado móvil** | `is_mobile=True` en el admin | Dashboard móvil en `/mobile/`: sin agente, GPS requerido para cerrar jornada |
 | **Sin acceso** | `skylog_access=False` en el admin | Ve una pantalla bloqueada; el ejecutivo puede habilitarlo |
 
-El agente Windows se activa por separado (ver sección Agente).
+- **Empleados normales:** se autentican con Nextcloud OAuth2. Se crean automáticamente al hacer login la primera vez.
+- **Empleados móviles:** se crean manualmente en el admin Django. Se autentican con usuario/contraseña en `/mobile/`.
 
 ---
 
 ## Dashboard
 
-El dashboard es una **single-page** en `/dashboard/`. El mismo template sirve las tres vistas; el JS llama a `/api/auth/me/` al cargar y muestra la sección correcta según el perfil.
+El dashboard principal (`/dashboard/`) es una **single-page**: el mismo template sirve las tres vistas; el JS llama a `/api/auth/me/` al cargar y muestra la sección correcta.
 
 ### Vista empleado
 
-- **Estado del agente:** Online/Offline en tiempo real (WebSocket connect/disconnect). Si está offline, los botones de jornada se deshabilitan.
-- **Onboarding:** Si el empleado nunca instaló el agente (`agent_version` vacío), aparece una tarjeta de setup con pasos y botón de descarga. Desaparece automáticamente al detectar el agente.
-- **Jornada:** Iniciar / Finalizar. Al finalizar se pide un reporte diario (actividades realizadas + planificadas para mañana).
-- **Versión del agente:** Se muestra con badge de advertencia si hay una versión más nueva disponible.
+- **Estado del agente:** Online/Offline en tiempo real (WebSocket). Si está offline, los botones se deshabilitan.
+- **Jornada:** Iniciar / Finalizar. Al finalizar se pide reporte diario y se dispara una captura de pantalla automática.
+- **Calendario mensual:** muestra las horas trabajadas por día con el total semanal. Días con jornada auto-cerrada se marcan en amarillo con tooltip de alerta. Días con ausencia (vacación/licencia/permiso) se muestran con color según tipo.
+- **Notas del equipo:** las notas globales del ejecutivo (feriados, eventos) aparecen en el calendario del empleado al pasar el mouse.
+- **Versión del agente:** badge de advertencia si hay versión más nueva disponible.
+- **Onboarding:** si el empleado nunca instaló el agente, aparece tarjeta de setup.
 
 ### Vista ejecutivo
 
-- **Tabla de empleados** con estado en tiempo real (online/offline, jornada activa, minutos inactivos).
+- **Tabla de empleados** con estado en tiempo real (online/offline, jornada activa, minutos inactivos, ubicación GPS si es móvil).
 - **Captura inmediata** por empleado (envía comando al agente vía WebSocket).
-- **Toggles** por empleado:
-  - `screenshots_enabled`: activa/desactiva capturas de pantalla
-  - `skylog_access`: habilita/deshabilita acceso al dashboard
-- Los cambios en los toggles se reflejan inmediatamente en la tabla.
+- **Calendario por empleado:** modal con el historial mensual de cada empleado. Permite registrar ausencias (vacación / licencia / permiso) con rango de fechas.
+- **Calendario del equipo:** calendario global al pie del dashboard para registrar notas (feriados, eventos). Click en cualquier día para añadir/editar/eliminar.
+- **Jornadas auto-cerradas:** días donde el empleado no cerró su jornada se marcan en rojo con el texto "Jornada no finalizada".
+- **Toggles** por empleado: `screenshots_enabled` y `skylog_access`.
+
+### Dashboard móvil (`/mobile/`)
+
+SPA autónoma para empleados sin agente Windows:
+
+- Login con usuario/contraseña (sin Nextcloud)
+- Iniciar/finalizar jornada con timer
+- **GPS obligatorio** para finalizar: si el navegador deniega la ubicación, el botón queda bloqueado
+- Tokens JWT gestionados en localStorage
 
 ---
 
@@ -107,14 +120,24 @@ El dashboard es una **single-page** en `/dashboard/`. El mismo template sirve la
 
 ```
 Workday          — una jornada laboral (in_progress / completed / incomplete)
+  ├── auto_closed       — True si fue cerrada automáticamente a las 17:00
+  ├── start_latitude / start_longitude  — ubicación al iniciar (usuarios móviles)
+  ├── end_latitude / end_longitude      — ubicación al finalizar (usuarios móviles)
   └── InactivityPeriod  — períodos donde el agente estuvo desconectado
   └── DailyReport       — reporte al finalizar (actividades hechas + planificadas)
 
+CalendarNote     — nota del ejecutivo en una fecha del calendario del equipo
+  └── note_type: holiday | event | other
+
+EmployeeLeave    — ausencia de un empleado en un rango de fechas
+  └── leave_type: vacacion | licencia | permiso
+
 CaptureConfig    — singleton con el intervalo global de captura (por defecto 30 min)
 Employee.capture_interval_minutes — override por empleado (null = usar global)
+Employee.is_mobile — True para empleados sin agente (acceso por /mobile/)
 ```
 
-El estado online del agente (`agent_online`) se actualiza en tiempo real: `True` al conectar WebSocket, `False` al desconectar.
+**Cierre automático de jornadas:** cada vez que se carga la vista ejecutiva (`/api/workday/overview/`), el sistema detecta jornadas `in_progress` de días anteriores (zona horaria GMT-4) y las cierra automáticamente a las 17:00, marcándolas con `auto_closed=True`.
 
 ---
 
@@ -164,6 +187,7 @@ POSTGRES_DB=skylog_db
 POSTGRES_USER=skylog_user
 POSTGRES_PASSWORD=contraseña
 REDIS_URL=redis://localhost:6379/0
+ADMIN_URL=panel/
 ```
 
 ```bash
@@ -176,6 +200,8 @@ make dev-up   # levanta PostgreSQL + Redis en Docker
 python manage.py migrate
 python manage.py createsuperuser
 ```
+
+> **Nota:** el panel de admin está en la URL configurada en `ADMIN_URL` (ej. `http://localhost:8000/panel/`). Si te bloquea por demasiados intentos fallidos (django-axes), ejecuta `python manage.py axes_reset`.
 
 ### 4. Arrancar el servidor
 
@@ -195,9 +221,16 @@ En **Linux/Mac**:
 make dev   # migrate + tailwind (background) + runserver
 ```
 
-Accede a `http://127.0.0.1:8000`. El panel de admin está en la URL configurada en `ADMIN_URL` (por defecto `admin/`).
+### 5. Login rápido en desarrollo
 
-### 5. Configurar Nextcloud OAuth2 (dev)
+Con `DEBUG=True` hay atajos para no necesitar Nextcloud:
+
+```
+http://localhost:8000/dev-login/?role=executive   # crea dev_executive y abre sesión
+http://localhost:8000/dev-login/?role=employee    # crea dev_employee y abre sesión
+```
+
+### 6. Configurar Nextcloud OAuth2 (dev)
 
 1. En Nextcloud → Configuración → Seguridad → Clientes OAuth2 → Añadir cliente
 2. URI de redirección: `http://localhost:8000/login/callback/`
@@ -209,9 +242,7 @@ Accede a `http://127.0.0.1:8000`. El panel de admin está en la URL configurada 
    NEXTCLOUD_OAUTH2_REDIRECT_URI=http://localhost:8000/login/callback/
    ```
 
-Sin Nextcloud, puedes crear usuarios desde el admin y forzar la sesión manualmente.
-
-### 6. Correr el agente en desarrollo
+### 7. Correr el agente en desarrollo
 
 ```bash
 cd agent
@@ -219,7 +250,15 @@ pip install -r requirements-agent.txt
 python agent.py
 ```
 
-El agente se conecta a `http://localhost:8000`. Los logs se escriben en `agent/redlinegs_agent.log`.
+El agente se conecta a `http://localhost:8000`. Los logs se escriben en `%AppData%\RedLineGS\redlinegs_agent.log`.
+
+### 8. Generar datos de prueba
+
+```bash
+python manage.py seed_dev_workdays           # genera jornadas para dev_employee (último mes)
+python manage.py seed_dev_workdays --days 60 # últimos 60 días
+python manage.py seed_dev_workdays --clear   # borra las jornadas existentes antes de generar
+```
 
 ---
 
@@ -227,7 +266,7 @@ El agente se conecta a `http://localhost:8000`. Los logs se escriben en `agent/r
 
 ### Activación
 
-Al ejecutar el agente por primera vez, abre el navegador en `/login/setup/?device=<token>`. Si el usuario ya está autenticado en el dashboard, un clic autoriza el agente directamente. Si no, pasa por el flujo OAuth2 completo.
+Al ejecutar el agente por primera vez, abre el navegador en `/login/setup/?device=<token>`. Si el usuario ya está autenticado en el dashboard, un clic autoriza el agente directamente.
 
 El agente también está disponible para descarga directa desde el **dashboard** (botón en la tarjeta de onboarding).
 
@@ -289,10 +328,10 @@ El instalador detecta automáticamente el `config.json` junto a sí mismo, lo co
 ### Comportamiento
 
 - Captura pantalla según el intervalo configurado (global o override por empleado)
+- Captura automática al finalizar la jornada
 - Mantiene WebSocket persistente; el dashboard ejecutivo ve el estado online en tiempo real
 - Responde a capturas inmediatas solicitadas desde el dashboard en < 1 segundo
-- Renueva el JWT automáticamente con el refresh token (válido 7 días)
-- Si el refresh token expira, abre el navegador para re-autenticación
+- Renueva el JWT automáticamente con el refresh token (válido 30 días)
 - Reconexión WebSocket con backoff exponencial: 5s → 10s → … → 300s
 - En caso de error de red, reintenta en 10 minutos
 
@@ -306,7 +345,7 @@ Definida en `agent/version.py`. Se muestra en el dashboard con badge de adverten
 
 ### Local (por defecto)
 
-Las capturas se guardan en `media/screenshots/{nombre}/{YY-MM}/{DD-HHhMM}.jpg`.
+Las capturas se guardan en `media/screenshots/{nombre}/{YYYY-mes}/{DD-HHhMMmSS}.jpg`.
 
 ### Nextcloud (opcional)
 
@@ -379,15 +418,11 @@ python -c "import secrets; print(secrets.token_urlsafe(50))"
 
 ### 3. Instalar nginx y obtener SSL (solo la primera vez)
 
-El orden importa: primero nginx en HTTP, luego certbot, luego nginx en HTTPS.
-
 **Paso A — instalar config HTTP temporal:**
 
 ```bash
 make nginx
 ```
-
-Como no hay certificado todavía, instala `nginx-http.conf` (solo HTTP). nginx arranca correctamente.
 
 **Paso B — obtener el certificado con certbot:**
 
@@ -402,37 +437,22 @@ sudo certbot certonly --webroot -w /var/www/certbot -d skylog.tudominio.com
 make nginx
 ```
 
-Ahora detecta el certificado en `/etc/letsencrypt/live/...` e instala `nginx.conf` con HTTPS, redirect HTTP→HTTPS y headers de seguridad.
-
-### 4. Actualizar la configuración de nginx (después de la primera instalación)
-
-`make nginx` tiene protección contra sobreescrituras: si ya hay SSL activo no hace nada, para evitar pisar una config funcional por accidente.
-
-Usar `--force` cuando se necesite aplicar cambios reales:
+### 4. Actualizar la configuración de nginx
 
 ```bash
 bash nginx-deploy.sh --force
 ```
 
-Casos de uso:
-- Se modificó `nginx.conf` (nuevos headers, rutas, timeouts…)
-- Cambió `DOMAIN` o `APP_PORT` en `.env`
-- Se necesita regenerar la config por cualquier otra razón
-
-> `--force` **no elimina el certificado SSL**. El certificado vive en `/etc/letsencrypt/live/` y el script no lo toca. Tras ejecutar `--force`, el script detecta el certificado existente e instala la config HTTPS normalmente.
-
 ### 5. Desplegar
-
-Primera vez y cada actualización:
 
 ```bash
 make deploy
 ```
 
 El script `deploy.sh`:
-1. Valida que `DEBUG=False` esté en el `.env` (sale con error si no)
+1. Valida que `DEBUG=False` esté en el `.env`
 2. `git pull origin main`
-3. Reconstruye los contenedores Docker (compila CSS, instala deps)
+3. Reconstruye los contenedores Docker
 4. `entrypoint.sh` ejecuta migraciones y arranca Daphne
 
 ### 6. Crear superusuario (solo la primera vez)
@@ -447,20 +467,28 @@ docker compose exec django python manage.py createsuperuser
 
 | Método | URL | Descripción |
 |---|---|---|
-| `GET` | `/health/` | Health check — `{"status":"ok"}` |
-| `GET` | `/api/auth/me/` | Perfil del usuario autenticado + versión del agente |
-| `POST` | `/api/auth/token/refresh/` | Renovar JWT (refresh token) |
-| `GET` | `/api/auth/agent/poll/` | El agente pollea para obtener sus tokens (throttled: 30/min) |
+| `GET` | `/health/` | Health check |
+| `GET` | `/api/auth/me/` | Perfil del usuario autenticado |
+| `POST` | `/api/auth/token/refresh/` | Renovar JWT |
+| `POST` | `/api/auth/mobile-login/` | Login usuario/contraseña (empleados móviles) |
+| `GET` | `/api/auth/agent/poll/` | El agente pollea para obtener tokens |
 | `POST` | `/api/auth/agent/authorize/` | Autorizar agente desde el browser |
 | `GET` | `/api/auth/agent/download/` | Descargar el ejecutable del agente |
-| `GET` | `/api/workday/active/` | Estado de jornada activa + heartbeat del agente |
-| `POST` | `/api/workday/start/` | Iniciar jornada |
-| `POST` | `/api/workday/end/` | Finalizar jornada (con reporte diario) |
+| `GET` | `/api/workday/active/` | Estado de jornada activa |
+| `POST` | `/api/workday/start/` | Iniciar jornada (acepta `latitude`/`longitude`) |
+| `POST` | `/api/workday/end/` | Finalizar jornada + captura automática (lat/lng obligatorio para móviles) |
+| `GET` | `/api/workday/monthly/` | Calendario mensual del empleado autenticado |
 | `GET` | `/api/workday/overview/` | Vista ejecutivo: todos los empleados en tiempo real |
-| `POST` | `/api/workday/capture/<id>/` | Ejecutivo: solicitar captura inmediata |
+| `GET` | `/api/employees/<id>/monthly/` | Ejecutivo: calendario mensual de un empleado |
+| `GET/POST` | `/api/calendar/notes/` | Notas del calendario global del equipo |
+| `DELETE` | `/api/calendar/notes/<id>/` | Eliminar nota del calendario |
+| `GET/POST` | `/api/employees/<id>/leaves/` | Ausencias de un empleado |
+| `DELETE` | `/api/employees/<id>/leaves/<id>/` | Eliminar ausencia |
+| `POST` | `/api/workday/capture/<id>/` | Ejecutivo: captura inmediata |
 | `PATCH` | `/api/workday/employee/<id>/skylog/` | Ejecutivo: toggle acceso Skylog |
 | `PATCH` | `/api/workday/employee/<id>/screenshots/` | Ejecutivo: toggle capturas |
 | `WS` | `ws/agent/` | WebSocket del agente (JWT en query param) |
+| `WS` | `ws/dashboard/` | WebSocket del browser (notificaciones en tiempo real) |
 
 ---
 
@@ -468,23 +496,23 @@ docker compose exec django python manage.py createsuperuser
 
 | Variable presente | Comportamiento |
 |---|---|
-| `DEBUG=True` | SQLite, email en consola, Tailwind y browser-reload activos |
+| `DEBUG=True` | SQLite, email en consola, Tailwind y browser-reload activos, SameSite=Lax en cookies |
 | `POSTGRES_DB` definido | Usa PostgreSQL |
 | `REDIS_URL` definido | Usa RedisChannelLayer; si no, InMemoryChannelLayer |
 | `NEXTCLOUD_SCREENSHOTS_USER` definido | Capturas vía WebDAV a Nextcloud |
 | `EMAIL_HOST` definido | Usa backend SMTP |
 | `ADMIN_NAME` + `ADMIN_EMAIL` definidos | Recibe emails de errores 500 vía `ADMINS` |
-| `DEBUG=False` | HSTS (1 año + preload + subdomains), CSRF seguro, SSL redirect |
+| `DEBUG=False` | HSTS, CSRF seguro, SSL redirect, SameSite=None (para iframes cross-origin) |
 
 ---
 
 ## Seguridad
 
-- **Brute-force:** django-axes bloquea IPs/usuarios tras 5 intentos fallidos (1h de cooldown)
-- **JWT:** access token 2h, refresh token 7 días, blacklist activado en rotación
+- **Brute-force:** django-axes bloquea IPs/usuarios tras 5 intentos fallidos (1h de cooldown). En dev: `python manage.py axes_reset`
+- **JWT:** access token 2h, refresh token 30 días, blacklist activado en rotación
 - **CSP:** `default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, frame-ancestors restringido a Nextcloud
-- **HSTS:** 1 año, incluye subdominios y preload
-- **Throttling DRF:** anónimos 60/min, usuarios autenticados 300/min; AgentTokenPoll 30/min
+- **HSTS:** 1 año, incluye subdominios y preload (solo producción)
+- **Throttling DRF:** anónimos 60/min, autenticados 300/min; AgentTokenPoll 30/min
 - **Admin URL:** aleatorizado vía `ADMIN_URL` env var
 - **Nginx headers:** `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`
 
@@ -518,4 +546,7 @@ docker compose exec django bash
 
 # Backup de la base de datos
 docker compose exec postgres pg_dump -U $POSTGRES_USER $POSTGRES_DB > backup.sql
+
+# Resetear lockout de django-axes
+python manage.py axes_reset
 ```

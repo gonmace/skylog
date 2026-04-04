@@ -29,6 +29,7 @@ class Employee(models.Model):
     agent_last_seen = models.DateTimeField(null=True, blank=True)
     agent_version = models.CharField(max_length=20, blank=True, default='')
     agent_online = models.BooleanField(default=False)
+    is_mobile = models.BooleanField(default=False, verbose_name='Usuario móvil')
 
     def __str__(self):
         return self.full_name

@@ -1,0 +1,392 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Skylog Mobile{% endblock %}
+
+{% block content %}
+<style>
+  body { background: #0f0f1a; }
+  .mob-page {
+    min-height: 100svh;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    background: linear-gradient(160deg, #0f0f1a 0%, #1a1030 100%);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 0 0 40px;
+  }
+  .mob-card {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 20px;
+  }
+  .mob-btn {
+    width: 100%; padding: 18px; border-radius: 16px;
+    font-size: 1rem; font-weight: 700; letter-spacing: -0.01em;
+    cursor: pointer; border: none; transition: opacity 0.15s, transform 0.1s;
+    font-family: inherit;
+  }
+  .mob-btn:active { transform: scale(0.97); }
+  .mob-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+  .mob-btn-green { background: linear-gradient(135deg, #22c55e, #16a34a); color: white; }
+  .mob-btn-red   { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
+  .mob-btn-blue  { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+  .mob-btn-ghost {
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.60); font-size: 0.875rem; font-weight: 500;
+  }
+  .mob-input {
+    width: 100%; background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 14px;
+    color: rgba(255,255,255,0.90); font-size: 1rem; padding: 16px;
+    font-family: inherit; outline: none; transition: border-color 0.15s;
+  }
+  .mob-input:focus { border-color: rgba(59,130,246,0.60); }
+  .mob-input::placeholder { color: rgba(255,255,255,0.30); }
+  .mob-label {
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.07em;
+    text-transform: uppercase; color: rgba(255,255,255,0.35); margin-bottom: 8px; display: block;
+  }
+  .mob-error {
+    background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25);
+    border-radius: 12px; padding: 12px 16px;
+    color: #f87171; font-size: 0.875rem;
+  }
+  .pulse-dot {
+    width: 12px; height: 12px; border-radius: 50%; background: #22c55e;
+    animation: pulse 2s infinite; box-shadow: 0 0 8px rgba(34,197,94,0.6);
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .timer { font-size: 2.5rem; font-weight: 700; letter-spacing: -0.04em; color: white; }
+  .timer-sub { font-size: 0.8rem; color: rgba(255,255,255,0.40); margin-top: 2px; }
+</style>
+
+<div class="mob-page">
+
+  <!-- Login view -->
+  <div id="view-login" style="width:100%;max-width:400px;padding:40px 20px">
+    <div style="text-align:center;margin-bottom:36px">
+      <div style="width:64px;height:64px;border-radius:18px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.25);display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
+        <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="none" viewBox="0 0 24 24" stroke="rgba(96,165,250,0.9)" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+      </div>
+      <p style="font-size:1.5rem;font-weight:800;color:white;letter-spacing:-0.03em">Skylog</p>
+      <p style="font-size:0.875rem;color:rgba(255,255,255,0.40);margin-top:4px">Registro de jornada</p>
+    </div>
+
+    <div class="mob-card" style="padding:28px 24px">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div>
+          <label class="mob-label">Usuario</label>
+          <input id="login-user" class="mob-input" type="text" placeholder="tu usuario" autocomplete="username" autocapitalize="none">
+        </div>
+        <div>
+          <label class="mob-label">Contraseña</label>
+          <input id="login-pass" class="mob-input" type="password" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <div id="login-error" class="mob-error" style="display:none"></div>
+        <button id="btn-login" class="mob-btn mob-btn-blue">Ingresar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dashboard view -->
+  <div id="view-dashboard" style="display:none;width:100%;max-width:420px;padding:28px 16px">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px">
+      <div>
+        <p id="dash-name" style="font-size:1.1rem;font-weight:700;color:white;letter-spacing:-0.02em"></p>
+        <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin-top:1px">Skylog Mobile</p>
+      </div>
+      <button id="btn-logout" class="mob-btn mob-btn-ghost" style="width:auto;padding:8px 14px;border-radius:10px">Salir</button>
+    </div>
+
+    <!-- Status card: inactive -->
+    <div id="mob-inactive" class="mob-card" style="padding:28px 24px;margin-bottom:16px;text-align:center">
+      <div style="width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,0.06);display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
+        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.30)" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      <p style="color:rgba(255,255,255,0.70);font-weight:600;margin-bottom:4px">Sin jornada activa</p>
+      <p style="color:rgba(255,255,255,0.35);font-size:0.8rem">Pulsa el botón para comenzar</p>
+    </div>
+
+    <!-- Status card: active -->
+    <div id="mob-active" class="mob-card" style="display:none;padding:28px 24px;margin-bottom:16px;text-align:center">
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px">
+        <div class="pulse-dot"></div>
+        <p style="color:#4ade80;font-weight:700;font-size:0.95rem">Jornada activa</p>
+      </div>
+      <div class="timer" id="mob-timer">0:00</div>
+      <p class="timer-sub" id="mob-since"></p>
+    </div>
+
+    <!-- Location status -->
+    <div id="mob-loc-error" class="mob-error" style="display:none;margin-bottom:16px">
+      📍 No se pudo obtener la ubicación. Activa el GPS e intenta de nuevo.
+    </div>
+
+    <!-- Start button -->
+    <button id="mob-btn-start" class="mob-btn mob-btn-green" style="margin-bottom:12px">
+      Iniciar jornada
+    </button>
+
+    <!-- End workday section -->
+    <div id="mob-end-section" style="display:none">
+      <div class="mob-card" style="padding:20px;margin-bottom:12px">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label class="mob-label">¿Qué hiciste hoy?</label>
+            <textarea id="mob-done" class="mob-input" style="height:90px;resize:none" placeholder="Actividades realizadas..."></textarea>
+          </div>
+          <div>
+            <label class="mob-label">¿Qué planeas mañana?</label>
+            <textarea id="mob-planned" class="mob-input" style="height:80px;resize:none" placeholder="Actividades para mañana..."></textarea>
+          </div>
+        </div>
+      </div>
+      <button id="mob-btn-end" class="mob-btn mob-btn-red">
+        Finalizar jornada
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function() {
+  // ── Auth ──────────────────────────────────────────────────
+  function getToken()  { return localStorage.getItem('access') || getCookie('access'); }
+  function getRefresh(){ return localStorage.getItem('refresh') || getCookie('refresh'); }
+  function setTokens(a, r) {
+    localStorage.setItem('access', a);
+    localStorage.setItem('refresh', r);
+    var secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = 'access='  + a + '; path=/; SameSite=None; max-age=7200'   + secure;
+    document.cookie = 'refresh=' + r + '; path=/; SameSite=None; max-age=2592000' + secure;
+  }
+  function clearTokens() {
+    localStorage.removeItem('access'); localStorage.removeItem('refresh');
+    document.cookie = 'access=;  path=/; max-age=0';
+    document.cookie = 'refresh=; path=/; max-age=0';
+  }
+  function getCookie(name) {
+    var m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? m.pop() : '';
+  }
+  function authHeaders() {
+    return { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json' };
+  }
+  function getCsrf() {
+    return getCookie('csrftoken') || document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+  }
+
+  async function refreshToken() {
+    var ref = getRefresh();
+    if (!ref) return false;
+    var r = await fetch('/api/auth/token/refresh/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh: ref }),
+    });
+    if (!r.ok) return false;
+    var d = await r.json();
+    setTokens(d.access, d.refresh || ref);
+    return true;
+  }
+
+  async function apiFetch(url, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({}, authHeaders(), opts.headers || {});
+    var r = await fetch(url, opts);
+    if (r.status === 401) {
+      var ok = await refreshToken();
+      if (!ok) { showLogin(); return null; }
+      opts.headers['Authorization'] = 'Bearer ' + getToken();
+      r = await fetch(url, opts);
+    }
+    return r;
+  }
+
+  // ── Views ─────────────────────────────────────────────────
+  var viewLogin   = document.getElementById('view-login');
+  var viewDash    = document.getElementById('view-dashboard');
+  var profile     = null;
+  var activeId    = null;
+  var startTime   = null;
+  var timerRef    = null;
+
+  function showLogin()  { viewLogin.style.display = ''; viewDash.style.display = 'none'; }
+  function showDash()   { viewLogin.style.display = 'none'; viewDash.style.display = ''; }
+
+  // ── Geolocation ───────────────────────────────────────────
+  function getLocation() {
+    return new Promise(function(resolve) {
+      if (!navigator.geolocation) { resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(
+        function(p) { resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }); },
+        function()  { resolve(null); },
+        { timeout: 10000, maximumAge: 60000, enableHighAccuracy: true }
+      );
+    });
+  }
+
+  // ── Timer ─────────────────────────────────────────────────
+  function startTimer(iso) {
+    startTime = new Date(iso);
+    clearInterval(timerRef);
+    timerRef = setInterval(function() {
+      var elapsed = Math.floor((Date.now() - startTime) / 1000);
+      var h = Math.floor(elapsed / 3600);
+      var m = Math.floor((elapsed % 3600) / 60);
+      var s = elapsed % 60;
+      document.getElementById('mob-timer').textContent =
+        (h > 0 ? h + ':' : '') +
+        String(m).padStart(h > 0 ? 2 : 1, '0') + ':' +
+        String(s).padStart(2, '0');
+    }, 1000);
+    var opts = { hour: '2-digit', minute: '2-digit', hour12: false };
+    document.getElementById('mob-since').textContent = 'Desde las ' + new Date(iso).toLocaleTimeString('es-BO', opts);
+  }
+
+  function showActive(wid, iso) {
+    activeId = wid;
+    document.getElementById('mob-inactive').style.display  = 'none';
+    document.getElementById('mob-active').style.display    = '';
+    document.getElementById('mob-btn-start').style.display = 'none';
+    document.getElementById('mob-end-section').style.display = '';
+    startTimer(iso);
+  }
+
+  function showInactive() {
+    activeId = null; clearInterval(timerRef);
+    document.getElementById('mob-inactive').style.display  = '';
+    document.getElementById('mob-active').style.display    = 'none';
+    document.getElementById('mob-btn-start').style.display = '';
+    document.getElementById('mob-end-section').style.display = 'none';
+    document.getElementById('mob-done').value    = '';
+    document.getElementById('mob-planned').value = '';
+  }
+
+  // ── Init dashboard ────────────────────────────────────────
+  async function initDash(prof) {
+    profile = prof;
+    document.getElementById('dash-name').textContent = prof.full_name || prof.nextcloud_username;
+
+    var r = await apiFetch('/api/workday/active/');
+    if (!r) return;
+    var data = await r.json();
+    if (data.active) showActive(data.workday_id, data.start_time);
+    else             showInactive();
+  }
+
+  // ── Login ─────────────────────────────────────────────────
+  document.getElementById('btn-login').addEventListener('click', async function() {
+    var btn  = this;
+    var user = document.getElementById('login-user').value.trim();
+    var pass = document.getElementById('login-pass').value;
+    var err  = document.getElementById('login-error');
+    err.style.display = 'none';
+    if (!user || !pass) { err.textContent = 'Completa todos los campos.'; err.style.display = ''; return; }
+    btn.disabled = true; btn.textContent = 'Ingresando...';
+    try {
+      var r = await fetch('/api/auth/mobile-login/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify({ username: user, password: pass }),
+      });
+      var data = await r.json();
+      if (!r.ok) { err.textContent = data.error || 'Error al ingresar.'; err.style.display = ''; btn.disabled = false; btn.textContent = 'Ingresar'; return; }
+      setTokens(data.access, data.refresh);
+      var me = await (await apiFetch('/api/auth/me/')).json();
+      showDash();
+      initDash(me);
+    } catch(e) { err.textContent = 'Error de conexión.'; err.style.display = ''; btn.disabled = false; btn.textContent = 'Ingresar'; }
+  });
+
+  document.getElementById('login-pass').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('btn-login').click();
+  });
+
+  // ── Logout ────────────────────────────────────────────────
+  document.getElementById('btn-logout').addEventListener('click', function() {
+    clearTokens(); clearInterval(timerRef); showLogin();
+  });
+
+  // ── Start workday ─────────────────────────────────────────
+  document.getElementById('mob-btn-start').addEventListener('click', async function() {
+    var btn = this;
+    btn.disabled = true; btn.textContent = 'Iniciando...';
+    var loc = await getLocation();
+    try {
+      var r = await apiFetch('/api/workday/start/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify(loc ? { latitude: loc.latitude, longitude: loc.longitude } : {}),
+      });
+      if (!r) return;
+      var data = await r.json();
+      if (!r.ok) { alert(data.error || 'Error al iniciar'); btn.disabled = false; btn.textContent = 'Iniciar jornada'; return; }
+      showActive(data.workday_id, data.start_time);
+    } catch(e) { alert('Error de conexión'); }
+    btn.disabled = false; btn.textContent = 'Iniciar jornada';
+  });
+
+  // ── End workday ───────────────────────────────────────────
+  document.getElementById('mob-btn-end').addEventListener('click', async function() {
+    var btn = this;
+    var done    = document.getElementById('mob-done').value.trim();
+    var planned = document.getElementById('mob-planned').value.trim();
+    var locErr  = document.getElementById('mob-loc-error');
+    locErr.style.display = 'none';
+
+    if (!done || !planned) { alert('Completa las actividades antes de finalizar.'); return; }
+
+    btn.disabled = true; btn.textContent = 'Obteniendo ubicación...';
+    var loc = await getLocation();
+
+    if (!loc) {
+      locErr.style.display = '';
+      btn.disabled = false; btn.textContent = 'Finalizar jornada';
+      return;
+    }
+
+    btn.textContent = 'Finalizando...';
+    try {
+      var r = await apiFetch('/api/workday/end/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify({
+          workday_id: activeId,
+          activities_done: done,
+          activities_planned: planned,
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+        }),
+      });
+      if (!r) return;
+      var data = await r.json();
+      if (!r.ok) { alert(data.error || 'Error al finalizar'); btn.disabled = false; btn.textContent = 'Finalizar jornada'; return; }
+      showInactive();
+    } catch(e) { alert('Error de conexión'); }
+    btn.disabled = false; btn.textContent = 'Finalizar jornada';
+  });
+
+  // ── Bootstrap ─────────────────────────────────────────────
+  async function init() {
+    var token = getToken();
+    if (!token) { showLogin(); return; }
+    try {
+      var r = await apiFetch('/api/auth/me/');
+      if (!r || !r.ok) { showLogin(); return; }
+      var me = await r.json();
+      showDash();
+      initDash(me);
+    } catch(e) { showLogin(); }
+  }
+
+  init();
+})();
+</script>
+{% endblock %}

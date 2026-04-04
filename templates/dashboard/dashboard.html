@@ -291,6 +291,71 @@
     color: var(--cp-orange); cursor: pointer;
   }
   .btn-send-msg:hover { background: color-mix(in srgb, var(--cp-orange) 25%, transparent); }
+
+  /* ── Calendar ───────────────────────────────────── */
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 3px;
+  }
+  .cal-day-header {
+    font-size: 0.62rem; font-weight: 600; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--cp-text-dim);
+    text-align: center; padding: 4px 0 6px;
+  }
+  .cal-day {
+    border-radius: 9px; min-height: 42px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px;
+  }
+  .cal-day-num {
+    font-size: 0.78rem; font-weight: 500; color: var(--cp-text-lo); line-height: 1;
+  }
+  .cal-day-hrs {
+    font-size: 0.58rem; font-weight: 700; line-height: 1;
+    color: var(--cp-green); letter-spacing: 0.01em;
+  }
+  .cal-day.empty .cal-day-num { opacity: 0.2; }
+  .cal-day.has-work { background: color-mix(in srgb, var(--cp-green) 10%, transparent); }
+  .cal-day.has-work .cal-day-num { color: var(--cp-text-hi); }
+  .cal-day.work-good { background: color-mix(in srgb, var(--cp-green) 18%, transparent); }
+  .cal-day.work-full { background: color-mix(in srgb, var(--cp-green) 28%, transparent); }
+  .cal-day.is-today  { box-shadow: 0 0 0 1.5px var(--cp-blue); }
+  .cal-day.is-today .cal-day-num { color: var(--cp-blue); font-weight: 700; }
+  .cal-day.active-wd { background: color-mix(in srgb, var(--cp-blue) 12%, transparent); }
+  .cal-day.active-wd .cal-day-hrs { color: var(--cp-blue); }
+  .cal-day.auto-closed-day { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--cp-yellow) 60%, transparent); cursor: default; }
+  .cal-day.auto-closed-day .cal-day-num { color: var(--cp-red); }
+  /* Leave types */
+  .cal-day.leave-vacacion { background: color-mix(in srgb, var(--cp-blue) 18%, transparent); }
+  .cal-day.leave-licencia { background: color-mix(in srgb, var(--cp-orange) 18%, transparent); }
+  .cal-day.leave-permiso  { background: color-mix(in srgb, #a78bfa 18%, transparent); }
+  .cal-day.leave-vacacion .cal-day-num { color: var(--cp-blue); font-weight:700; }
+  .cal-day.leave-licencia .cal-day-num { color: var(--cp-orange); font-weight:700; }
+  .cal-day.leave-permiso  .cal-day-num { color: #a78bfa; font-weight:700; }
+  /* Note dot + tooltip */
+  .cal-day.has-note { position:relative; }
+  .cal-day.has-note::after { content:''; position:absolute; top:4px; right:4px; width:5px; height:5px; border-radius:50%; background:var(--cp-yellow); }
+  .cal-day.has-note::before {
+    content: attr(data-note);
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: rgba(20,20,35,0.97); color: rgba(255,255,255,0.90);
+    font-size: 0.7rem; font-weight: 500; white-space: nowrap;
+    padding: 5px 10px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+    pointer-events: none; opacity: 0; transition: opacity 0.15s;
+    z-index: 50;
+  }
+  .cal-day.has-note:hover::before { opacity: 1; }
+  /* Interactive days (exec per-employee modal) */
+  .cal-day.cal-interactive { cursor:pointer; }
+  .cal-day.cal-interactive:hover:not(.leave-vacacion):not(.leave-licencia):not(.leave-permiso) { background:color-mix(in srgb,white 6%,transparent); }
+  .cal-day.cal-sel-start { box-shadow:0 0 0 2px var(--cp-blue); }
+  .cal-day.cal-sel-range { background:color-mix(in srgb,var(--cp-blue) 10%,transparent); }
+  /* Exec global calendar */
+  #exec-global-cal .cal-day.cal-interactive { cursor:pointer; }
+  #exec-global-cal .cal-day.cal-interactive:hover { background:color-mix(in srgb,white 6%,transparent); }
+  #exec-global-cal .cal-day.has-note .cal-day-num { color:var(--cp-yellow); font-weight:700; }
 </style>
 
 <div class="cupertino-page">
@@ -501,6 +566,35 @@
     </div><!-- /columna derecha -->
 
     </div><!-- /grid -->
+
+    <!-- Calendar -->
+    <div id="calendar-card" class="hidden cupertino-card px-6 py-5 mt-2">
+      <div class="flex items-center justify-between mb-4">
+        <p class="cupertino-label" style="margin-bottom:0">Horas trabajadas</p>
+        <div class="flex items-center gap-2">
+          <button id="cal-prev" class="btn-ios-logout" title="Mes anterior">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+            </svg>
+          </button>
+          <p id="cal-month-label" class="text-sm font-semibold" style="color:var(--cp-text-hi);min-width:130px;text-align:center"></p>
+          <button id="cal-next" class="btn-ios-logout" title="Mes siguiente">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="cal-week-stat" style="display:none;margin-bottom:14px;padding:10px 14px;border-radius:12px;background:color-mix(in srgb,var(--cp-blue) 8%,transparent);border:1px solid color-mix(in srgb,var(--cp-blue) 18%,transparent)">
+        <span style="font-size:0.72rem;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--cp-text-dim)">Total semana actual</span>
+        <div style="margin-top:2px;display:flex;align-items:baseline;gap:6px">
+          <span id="cal-week-total" style="font-size:1.35rem;font-weight:700;letter-spacing:-0.02em;color:var(--cp-blue)"></span>
+          <span id="cal-week-days" style="font-size:0.72rem;color:var(--cp-text-dim)"></span>
+        </div>
+      </div>
+      <div id="cal-grid" class="cal-grid"></div>
+    </div>
+
   </div><!-- /container -->
   </div><!-- /view-employee -->
 
@@ -559,6 +653,7 @@
               <th style="text-align:center">Screenshots</th>
               <th style="text-align:center">Skylog</th>
               <th style="text-align:center;padding:0 8px">Mensaje</th>
+              <th style="text-align:center;padding:0 8px">Cal.</th>
             </tr>
           </thead>
           <tbody id="employee-tbody"></tbody>
@@ -573,6 +668,24 @@
       </div>
 
     </div>
+
+    <!-- Global calendar -->
+    <div id="exec-global-cal" class="cupertino-card px-6 py-5 mt-5">
+      <div class="flex items-center justify-between mb-4">
+        <p class="cupertino-label" style="margin-bottom:0">Calendario de equipo</p>
+        <div class="flex items-center gap-2">
+          <button id="exec-cal-prev" class="btn-ios-logout" title="Mes anterior">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <p id="exec-cal-month-label" style="font-size:0.875rem;font-weight:600;color:var(--cp-text-hi);min-width:130px;text-align:center"></p>
+          <button id="exec-cal-next" class="btn-ios-logout" title="Mes siguiente">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="exec-cal-grid" class="cal-grid"></div>
+    </div>
+
   </div><!-- /container -->
   </div><!-- /view-executive -->
 
@@ -745,6 +858,97 @@
     <div class="px-6 pb-6 flex justify-end gap-2">
       <button id="btn-msg-cancel" class="btn-ios-ghost">Cancelar</button>
       <button id="btn-msg-send" class="btn-ios-primary">Enviar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Executive: calendario de empleado -->
+<dialog id="modal-emp-calendar" class="modal modal-ios">
+  <div class="modal-box cp-modal-box" style="max-width:520px;width:100%">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 12px">
+      <div>
+        <p id="emp-cal-name" style="font-size:0.95rem;font-weight:700;color:var(--cp-text-hi)"></p>
+        <p style="font-size:0.68rem;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--cp-text-lo);margin-top:2px">Horas trabajadas</p>
+      </div>
+      <button id="emp-cal-close" class="btn-ios-logout">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0 24px 12px">
+      <button id="emp-cal-prev" class="btn-ios-logout" title="Mes anterior">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <p id="emp-cal-month-label" style="font-size:0.875rem;font-weight:600;color:var(--cp-text-hi);min-width:140px;text-align:center"></p>
+      <button id="emp-cal-next" class="btn-ios-logout" title="Mes siguiente">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+    <div id="emp-cal-week-stat" style="display:none;margin:0 24px 12px;padding:10px 14px;border-radius:12px;background:color-mix(in srgb,var(--cp-blue) 8%,transparent);border:1px solid color-mix(in srgb,var(--cp-blue) 18%,transparent)">
+      <span style="font-size:0.68rem;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--cp-text-dim)">Total semana actual</span>
+      <div style="margin-top:2px;display:flex;align-items:baseline;gap:6px">
+        <span id="emp-cal-week-total" style="font-size:1.25rem;font-weight:700;letter-spacing:-0.02em;color:var(--cp-blue)"></span>
+        <span id="emp-cal-week-days" style="font-size:0.72rem;color:var(--cp-text-dim)"></span>
+      </div>
+    </div>
+    <div style="padding:0 24px 24px">
+      <div id="emp-cal-grid" class="cal-grid"></div>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Executive: nota global de calendario -->
+<dialog id="modal-cal-note" class="modal modal-ios">
+  <div class="modal-box cp-modal-box" style="max-width:360px">
+    <div class="cp-modal-body" style="padding-bottom:12px">
+      <p id="cal-note-title" style="font-size:0.95rem;font-weight:700;color:var(--cp-text-hi);margin-bottom:16px"></p>
+      <select id="cal-note-type" style="width:100%;background:#1e1e2e;border:1px solid var(--cp-surface-border);border-radius:10px;color:rgba(255,255,255,0.85);font-size:0.875rem;padding:9px 12px;margin-bottom:10px;font-family:inherit;outline:none;color-scheme:dark">
+        <option value="feriado">Feriado</option>
+        <option value="evento">Evento</option>
+        <option value="otro">Otro</option>
+      </select>
+      <input id="cal-note-text" type="text" placeholder="Descripción (ej: Feriado Nacional)" maxlength="200"
+        style="width:100%;background:#1e1e2e;border:1px solid var(--cp-surface-border);border-radius:10px;color:rgba(255,255,255,0.85);font-size:0.875rem;padding:9px 12px;font-family:inherit;outline:none;color-scheme:dark">
+    </div>
+    <div class="cp-modal-footer" style="display:flex">
+      <button id="cal-note-delete" class="cp-modal-btn" style="color:var(--cp-red);display:none;border-right:1px solid var(--cp-divider)">Eliminar</button>
+      <button id="cal-note-cancel" class="cp-modal-btn cancel">Cancelar</button>
+      <button id="cal-note-save" class="cp-modal-btn confirm-blue">Guardar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Executive: ausencia de empleado -->
+<dialog id="modal-leave" class="modal modal-ios">
+  <div class="modal-box cp-modal-box" style="max-width:380px">
+    <div class="cp-modal-body" style="padding-bottom:12px">
+      <p id="leave-modal-title" style="font-size:0.95rem;font-weight:700;color:var(--cp-text-hi);margin-bottom:16px"></p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <select id="leave-type" style="width:100%;background:#1e1e2e;border:1px solid var(--cp-surface-border);border-radius:10px;color:rgba(255,255,255,0.85);font-size:0.875rem;padding:9px 12px;font-family:inherit;outline:none;color-scheme:dark">
+          <option value="vacacion">Vacación</option>
+          <option value="licencia">Licencia</option>
+          <option value="permiso">Permiso</option>
+        </select>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div style="flex:1">
+            <label style="font-size:0.68rem;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--cp-text-dim);display:block;margin-bottom:4px">Desde</label>
+            <input id="leave-start" type="date" style="width:100%;background:#1e1e2e;border:1px solid var(--cp-surface-border);border-radius:10px;color:rgba(255,255,255,0.85);font-size:0.875rem;padding:9px 12px;font-family:inherit;outline:none;color-scheme:dark;color-scheme:dark">
+          </div>
+          <div style="flex:1">
+            <label style="font-size:0.68rem;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--cp-text-dim);display:block;margin-bottom:4px">Hasta</label>
+            <input id="leave-end" type="date" style="width:100%;background:#1e1e2e;border:1px solid var(--cp-surface-border);border-radius:10px;color:rgba(255,255,255,0.85);font-size:0.875rem;padding:9px 12px;font-family:inherit;outline:none;color-scheme:dark;color-scheme:dark">
+          </div>
+        </div>
+        <input id="leave-note" type="text" placeholder="Nota opcional" maxlength="200"
+          style="width:100%;background:#1e1e2e;border:1px solid var(--cp-surface-border);border-radius:10px;color:rgba(255,255,255,0.85);font-size:0.875rem;padding:9px 12px;font-family:inherit;outline:none;color-scheme:dark">
+      </div>
+    </div>
+    <div class="cp-modal-footer" style="display:flex">
+      <button id="leave-delete" class="cp-modal-btn" style="color:var(--cp-red);display:none;border-right:1px solid var(--cp-divider)">Eliminar</button>
+      <button id="leave-cancel" class="cp-modal-btn cancel">Cancelar</button>
+      <button id="leave-save" class="cp-modal-btn confirm-blue">Guardar</button>
     </div>
   </div>
   <form method="dialog" class="modal-backdrop"><button>close</button></form>

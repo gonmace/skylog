@@ -308,6 +308,17 @@
       } catch (e) { alert('Error de conexión'); btnStart.disabled = false; }
     }
 
+    async function getLocation() {
+      return new Promise((resolve) => {
+        if (!navigator.geolocation) { resolve(null); return; }
+        navigator.geolocation.getCurrentPosition(
+          p => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
+          () => resolve(null),
+          { timeout: 8000, maximumAge: 60000 }
+        );
+      });
+    }
+
     async function endWorkday() {
       const done    = activitiesDone.value.trim();
       const planned = activitiesPlanned.value.trim();
@@ -319,11 +330,31 @@
       modalError.classList.add('hidden');
       btnModalSubmit.disabled = true;
       btnModalSubmit.textContent = 'Finalizando...';
+
+      // Geolocalización (requerida para usuarios móviles)
+      let location = null;
+      if (profileData.is_mobile) {
+        btnModalSubmit.textContent = 'Obteniendo ubicación...';
+        location = await getLocation();
+        if (!location) {
+          modalError.classList.remove('hidden');
+          modalErrorText.textContent = 'No se pudo obtener la ubicación. Activa el GPS e intenta de nuevo.';
+          btnModalSubmit.disabled = false;
+          btnModalSubmit.textContent = 'Finalizar jornada';
+          return;
+        }
+      }
+
       try {
         const resp = await fetch('/api/workday/end/', {
           method: 'POST',
           headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
-          body: JSON.stringify({ workday_id: activeWorkdayId, activities_done: done, activities_planned: planned }),
+          body: JSON.stringify({
+            workday_id: activeWorkdayId,
+            activities_done: done,
+            activities_planned: planned,
+            ...(location || {}),
+          }),
         });
         const data = await resp.json();
         if (!resp.ok) {
@@ -522,12 +553,138 @@
       } catch(e) { btn.disabled = false; }
     });
 
+    // ── Calendar ────────────────────────────────────────────────
+    const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                         'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const DAY_HEADERS = ['Lu','Ma','Mi','Ju','Vi','Sa','Do'];
+    let calYear, calMonth;
+
+    async function loadCalendar(year, month) {
+      calYear = year; calMonth = month;
+      document.getElementById('cal-month-label').textContent =
+        `${MONTH_NAMES[month - 1]} ${year}`;
+
+      const resp = await fetch(`/api/workday/monthly/?year=${year}&month=${month}`, { headers: authHeaders() });
+      if (!resp.ok) return;
+      const data = await resp.json();
+
+      const today = new Date();
+      const todayY = today.getFullYear(), todayM = today.getMonth() + 1, todayD = today.getDate();
+
+      // First weekday of month (0=Mon … 6=Sun, ISO week)
+      const firstDay = new Date(year, month - 1, 1);
+      const startOffset = (firstDay.getDay() + 6) % 7; // 0=Mon
+      const daysInMonth = new Date(year, month, 0).getDate();
+
+      const grid = document.getElementById('cal-grid');
+      let html = DAY_HEADERS.map(d => `<div class="cal-day-header">${d}</div>`).join('');
+
+      // Empty cells before first day
+      for (let i = 0; i < startOffset; i++) html += `<div class="cal-day empty"></div>`;
+
+      const autoClosed = new Set(data.auto_closed_days || []);
+      const notes  = data.notes  || {};
+      const leaves = data.leaves || {};
+
+      const LEAVE_LABELS = { vacacion: 'Vacación', licencia: 'Licencia', permiso: 'Permiso' };
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const hrs     = data.days[String(d)] || 0;
+        const isToday  = year === todayY && month === todayM && d === todayD;
+        const isActive = data.active_day === d;
+        const isClosed = autoClosed.has(d);
+        const note     = notes[String(d)];
+        const leave    = leaves[String(d)];
+
+        let cls = 'cal-day';
+        if (leave)          cls += ` leave-${leave.type}`;
+        else if (isClosed)  cls += ' auto-closed-day';
+        else if (isActive)  cls += ' active-wd';
+        else if (hrs >= 7)  cls += ' work-full';
+        else if (hrs >= 4)  cls += ' work-good';
+        else if (hrs > 0)   cls += ' has-work';
+        if (isToday) cls += ' is-today';
+        if (note)    cls += ' has-note';
+
+        const hrsLabel = (!leave && hrs > 0)
+          ? `<span class="cal-day-hrs" style="${isClosed ? 'color:var(--cp-red)' : ''}">${hrs % 1 === 0 ? hrs : hrs.toFixed(1)}h</span>`
+          : (leave ? `<span class="cal-day-hrs" style="font-size:0.52rem;letter-spacing:0">${LEAVE_LABELS[leave.type]}</span>` : '');
+
+        let extraAttrs = '';
+        if (leave)         extraAttrs = ` title="${LEAVE_LABELS[leave.type]}${leave.note ? ': ' + leave.note : ''}"`;
+        else if (isClosed) extraAttrs = ' title="Jornada no finalizada"';
+        else if (note) {
+          extraAttrs = ` data-note="${note.text}"`;
+        }
+
+        html += `<div class="${cls}"${extraAttrs}>
+          <span class="cal-day-num">${d}</span>
+          ${hrsLabel}
+        </div>`;
+      }
+
+      grid.innerHTML = html;
+      document.getElementById('calendar-card').classList.remove('hidden');
+
+      // ── Resumen semana actual (excluye días auto-cerrados) ─────
+      const weekStat  = document.getElementById('cal-week-stat');
+      const weekTotal = document.getElementById('cal-week-total');
+      const weekDays  = document.getElementById('cal-week-days');
+      const isCurrentMonth = year === todayY && month === todayM;
+      if (isCurrentMonth) {
+        // Lunes de la semana actual (ISO: 0=Lun)
+        const monday = todayD - ((today.getDay() + 6) % 7);
+        let weekHrs = 0, daysWithWork = 0;
+        for (let d = monday; d <= todayD; d++) {
+          if (autoClosed.has(d)) continue;
+          const h = data.days[String(d)] || 0;
+          weekHrs += h;
+          if (h > 0) daysWithWork++;
+        }
+        const wh = Math.floor(weekHrs);
+        const wm = Math.round((weekHrs - wh) * 60);
+        weekTotal.textContent = wm > 0 ? `${wh} h ${wm} min` : `${wh} h`;
+        weekDays.textContent  = `· ${daysWithWork} día${daysWithWork !== 1 ? 's' : ''} trabajado${daysWithWork !== 1 ? 's' : ''}`;
+        weekStat.style.display = 'block';
+      } else {
+        weekStat.style.display = 'none';
+      }
+    }
+
+    document.getElementById('cal-prev').addEventListener('click', function() {
+      let y = calYear, m = calMonth - 1;
+      if (m < 1) { m = 12; y--; }
+      loadCalendar(y, m);
+    });
+    document.getElementById('cal-next').addEventListener('click', function() {
+      let y = calYear, m = calMonth + 1;
+      if (m > 12) { m = 1; y++; }
+      loadCalendar(y, m);
+    });
+
     // Init
     checkAgentAlive().then(updateAgentStatus);
     loadWorkdayStatus();
     loadLastReport();
     loadPendingMessages();
     setInterval(loadPendingMessages, 60000);
+    const now = new Date();
+    loadCalendar(now.getFullYear(), now.getMonth() + 1);
+
+    // WebSocket para notificaciones en tiempo real (mensajes de ejecutivo)
+    (function connectDashboardWS() {
+      const token = localStorage.getItem('access');
+      if (!token) return;
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/ws/dashboard/?token=${token}`);
+      ws.onmessage = function(e) {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'new_message') loadPendingMessages();
+        } catch (_) {}
+      };
+      ws.onclose = function() { setTimeout(connectDashboardWS, 5000); };
+    })();
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -557,9 +714,14 @@
       const isActive = workday?.active;
       const agentOn  = emp.agent_is_active;
 
+      const autoClosed = workday?.auto_closed;
       const workdayBadge = isActive
         ? `<span class="badge-active"><span class="dot-online" style="animation:pulse 2s infinite"></span>Activa</span>`
-        : `<span class="badge-inactive">Sin jornada</span>`;
+        : autoClosed
+          ? `<span class="badge-inactive" style="background:color-mix(in srgb,var(--cp-red) 12%,transparent);color:var(--cp-red);border-color:color-mix(in srgb,var(--cp-red) 25%,transparent);cursor:default" title="Jornada no finalizada — cerrada automáticamente a las 17:00">
+               <svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='none' viewBox='0 0 24 24' stroke='currentColor' stroke-width='2.5' style='display:inline;margin-right:3px;vertical-align:middle'><path stroke-linecap='round' stroke-linejoin='round' d='M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z'/></svg>Sin cerrar
+             </span>`
+          : `<span class="badge-inactive">Sin jornada</span>`;
 
       const version  = emp.agent_version
         ? ` <span style="color:var(--cp-text-dim);font-family:monospace;font-size:0.72rem">— ${emp.agent_version}</span>`
@@ -572,7 +734,7 @@
         ? `<span style="color:var(--cp-text-mid);font-size:0.82rem">${emp.capture_interval_minutes} min</span>`
         : `<span style="color:var(--cp-text-dim)">—</span>`;
 
-      const captureBtn = agentOn
+      const captureBtn = agentOn && emp.workday?.active
         ? `<button class="btn-capture btn-capture-ios" data-id="${emp.id}" title="Capturar pantalla ahora">
              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="pointer-events-none">
                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
@@ -601,9 +763,9 @@
           </div>
         </td>
         <td style="${rowStyle}">${disabled ? '<span style="color:var(--cp-text-dim)">—</span>' : workdayBadge}</td>
-        <td style="color:var(--cp-text-mid);font-size:0.82rem;${rowStyle}">${disabled ? '' : (isActive ? formatTime(workday.start_time) : '—')}</td>
+        <td style="color:${autoClosed ? 'var(--cp-red)' : 'var(--cp-text-mid)'};font-size:0.82rem;${rowStyle}">${disabled ? '' : (isActive || autoClosed ? formatTime(workday.start_time) : '—')}</td>
         <td style="font-size:0.82rem;${rowStyle}">
-          ${disabled ? '' : `<span style="color:var(--cp-text-mid)">${isActive ? formatDuration(workday.duration_minutes) : '—'}</span>
+          ${disabled ? '' : `<span style="color:${autoClosed ? 'var(--cp-red)' : 'var(--cp-text-mid)'}">${(isActive || autoClosed) ? formatDuration(workday.duration_minutes) : '—'}</span>
           ${isActive && workday.inactive_minutes > 0
             ? `<br><span style="color:rgba(255,99,99,0.75);font-size:0.72rem">▾ ~${formatDuration(workday.inactive_minutes)} inactivo est.</span>`
             : ''}`}
@@ -626,6 +788,13 @@
           </label>
         </td>
         <td style="text-align:center">${msgBtn}</td>
+        <td style="text-align:center">
+          <button class="btn-emp-cal btn-capture-ios" data-id="${emp.id}" data-name="${emp.full_name}" title="Ver calendario">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" class="pointer-events-none">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+          </button>
+        </td>
       </tr>`;
     }
 
@@ -823,7 +992,275 @@
       }
     });
 
+    // ── Shared calendar helpers ──────────────────────────────────
+    const EXEC_MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                              'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const EXEC_DAY_HDR = ['Lu','Ma','Mi','Ju','Vi','Sa','Do'];
+    const LEAVE_LABELS = { vacacion: 'Vacación', licencia: 'Licencia', permiso: 'Permiso' };
+
+    function toIso(year, month, day) {
+      return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    }
+
+    function buildCalGrid(data, year, month, interactive) {
+      const today = new Date();
+      const todayY = today.getFullYear(), todayM = today.getMonth()+1, todayD = today.getDate();
+      const firstDay   = new Date(year, month-1, 1);
+      const startOffset = (firstDay.getDay()+6) % 7;
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const autoClosed  = new Set(data.auto_closed_days || []);
+      const notes  = data.notes  || {};
+      const leaves = data.leaves || {};
+
+      let html = EXEC_DAY_HDR.map(d => `<div class="cal-day-header">${d}</div>`).join('');
+      for (let i = 0; i < startOffset; i++) html += `<div class="cal-day empty"></div>`;
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const hrs     = data.days ? (data.days[String(d)] || 0) : 0;
+        const isToday  = year===todayY && month===todayM && d===todayD;
+        const isActive = data.active_day === d;
+        const isClosed = autoClosed.has(d);
+        const note     = notes[String(d)];
+        const leave    = leaves[String(d)];
+
+        let cls = 'cal-day' + (interactive ? ' cal-interactive' : '');
+        if (leave)          cls += ` leave-${leave.type}`;
+        else if (isClosed)  cls += ' auto-closed-day';
+        else if (isActive)  cls += ' active-wd';
+        else if (hrs >= 7)  cls += ' work-full';
+        else if (hrs >= 4)  cls += ' work-good';
+        else if (hrs > 0)   cls += ' has-work';
+        if (isToday) cls += ' is-today';
+        if (note)    cls += ' has-note';
+
+        const hrsLabel = (!leave && hrs > 0)
+          ? `<span class="cal-day-hrs" style="${isClosed?'color:var(--cp-red)':''}">${hrs%1===0?hrs:hrs.toFixed(1)}h</span>`
+          : (leave ? `<span class="cal-day-hrs" style="font-size:0.52rem;letter-spacing:0">${LEAVE_LABELS[leave.type]}</span>` : '');
+
+        let tip = '';
+        if (leave && leave.note) tip = ` title="${LEAVE_LABELS[leave.type]}: ${leave.note}"`;
+        else if (leave) tip = ` title="${LEAVE_LABELS[leave.type]}"`;
+        else if (isClosed) tip = ' title="Cerrada automáticamente a las 17:00"';
+        else if (note) tip = ` title="${note.text}"`;
+
+        html += `<div class="${cls}" data-day="${d}"${tip}>
+          <span class="cal-day-num">${d}</span>${hrsLabel}
+        </div>`;
+      }
+      return html;
+    }
+
+    // ── Global executive calendar ────────────────────────────────
+    let execCalYear, execCalMonth;
+
+    const modalCalNote  = document.getElementById('modal-cal-note');
+    const calNoteTitle  = document.getElementById('cal-note-title');
+    const calNoteType   = document.getElementById('cal-note-type');
+    const calNoteText   = document.getElementById('cal-note-text');
+    const calNoteDelete = document.getElementById('cal-note-delete');
+    const calNoteCancel = document.getElementById('cal-note-cancel');
+    const calNoteSave   = document.getElementById('cal-note-save');
+    let activeNoteDate  = null, activeNoteId = null;
+
+    async function loadExecCalendar(year, month) {
+      execCalYear = year; execCalMonth = month;
+      document.getElementById('exec-cal-month-label').textContent = `${EXEC_MONTH_NAMES[month-1]} ${year}`;
+      const resp = await fetch(`/api/calendar/notes/?year=${year}&month=${month}`, { headers: authHeaders() });
+      const notes = resp.ok ? await resp.json() : [];
+      const notesMap = {};
+      notes.forEach(n => { notesMap[String(parseInt(n.date.split('-')[2]))] = {text: n.text, type: n.note_type, id: n.id}; });
+      document.getElementById('exec-cal-grid').innerHTML =
+        buildCalGrid({ notes: notesMap }, year, month, true);
+    }
+
+    document.getElementById('exec-cal-prev').addEventListener('click', () => {
+      let y = execCalYear, m = execCalMonth-1; if (m<1){m=12;y--;} loadExecCalendarFull(y,m);
+    });
+    document.getElementById('exec-cal-next').addEventListener('click', () => {
+      let y = execCalYear, m = execCalMonth+1; if (m>12){m=1;y++;} loadExecCalendarFull(y,m);
+    });
+
+    document.getElementById('exec-cal-grid').addEventListener('click', function(e) {
+      const cell = e.target.closest('.cal-day[data-day]');
+      if (!cell) return;
+      const d = parseInt(cell.dataset.day);
+      activeNoteDate = toIso(execCalYear, execCalMonth, d);
+
+      // Check if note exists
+      const noteEl = document.getElementById('exec-cal-grid')
+        .querySelector(`.cal-day[data-day="${d}"].has-note`);
+
+      // Find note id from loaded data (stored in title or re-fetch)
+      // We re-check via cell title data approach — simpler: store id in data attr
+      // Actually we need to re-fetch or store. Let's store in data-note-id.
+      activeNoteId = cell.dataset.noteId || null;
+
+      calNoteTitle.textContent = `${d} de ${EXEC_MONTH_NAMES[execCalMonth-1]} ${execCalYear}`;
+      calNoteType.value = cell.dataset.noteType || 'feriado';
+      calNoteText.value = cell.dataset.noteText || '';
+      calNoteDelete.style.display = activeNoteId ? 'block' : 'none';
+      modalCalNote.showModal();
+      setTimeout(() => calNoteText.focus(), 50);
+    });
+
+    calNoteCancel.addEventListener('click', () => modalCalNote.close());
+    calNoteDelete.addEventListener('click', async () => {
+      if (!activeNoteId) return;
+      await fetch(`/api/calendar/notes/${activeNoteId}/`, {
+        method: 'DELETE', headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
+      });
+      modalCalNote.close();
+      loadExecCalendarFull(execCalYear, execCalMonth);
+    });
+    calNoteSave.addEventListener('click', async () => {
+      const text = calNoteText.value.trim();
+      if (!text) { calNoteText.focus(); return; }
+      await fetch('/api/calendar/notes/', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+        body: JSON.stringify({ date: activeNoteDate, text, note_type: calNoteType.value }),
+      });
+      modalCalNote.close();
+      loadExecCalendarFull(execCalYear, execCalMonth);
+    });
+
+    async function loadExecCalendarFull(year, month) {
+      await loadExecCalendar(year, month);
+      // Enrich cells with note metadata for click handler
+      const resp2 = await fetch(`/api/calendar/notes/?year=${year}&month=${month}`, { headers: authHeaders() });
+      if (!resp2.ok) return;
+      const notes2 = await resp2.json();
+      notes2.forEach(n => {
+        const day = parseInt(n.date.split('-')[2]);
+        const cell = document.querySelector(`#exec-cal-grid .cal-day[data-day="${day}"]`);
+        if (cell) {
+          cell.dataset.noteId   = n.id;
+          cell.dataset.noteType = n.note_type;
+          cell.dataset.noteText = n.text;
+        }
+      });
+    }
+
+    // ── Employee calendar modal ──────────────────────────────────
+    const modalEmpCal = document.getElementById('modal-emp-calendar');
+    let empCalId = null, empCalYear, empCalMonth, empCalData = null;
+
+    // Leave modal
+    const modalLeave  = document.getElementById('modal-leave');
+    const leaveTitle  = document.getElementById('leave-modal-title');
+    const leaveType   = document.getElementById('leave-type');
+    const leaveStart  = document.getElementById('leave-start');
+    const leaveEnd    = document.getElementById('leave-end');
+    const leaveNote   = document.getElementById('leave-note');
+    const leaveDelete = document.getElementById('leave-delete');
+    const leaveCancel = document.getElementById('leave-cancel');
+    const leaveSave   = document.getElementById('leave-save');
+    let activeLeaveId = null;
+
+    leaveCancel.addEventListener('click', () => modalLeave.close());
+    leaveDelete.addEventListener('click', async () => {
+      if (!activeLeaveId) return;
+      await fetch(`/api/employees/${empCalId}/leaves/${activeLeaveId}/`, {
+        method: 'DELETE', headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
+      });
+      modalLeave.close();
+      loadEmpCalendar(empCalId, empCalYear, empCalMonth);
+    });
+    leaveSave.addEventListener('click', async () => {
+      const type = leaveType.value;
+      const start = leaveStart.value;
+      const end   = leaveEnd.value || start;
+      const note  = leaveNote.value.trim();
+      if (!start) { leaveStart.focus(); return; }
+      await fetch(`/api/employees/${empCalId}/leaves/`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+        body: JSON.stringify({ leave_type: type, start_date: start, end_date: end, note }),
+      });
+      modalLeave.close();
+      loadEmpCalendar(empCalId, empCalYear, empCalMonth);
+    });
+
+    async function loadEmpCalendar(empId, year, month) {
+      empCalYear = year; empCalMonth = month;
+      document.getElementById('emp-cal-month-label').textContent =
+        `${EXEC_MONTH_NAMES[month-1]} ${year}`;
+
+      const resp = await fetch(`/api/employees/${empId}/monthly/?year=${year}&month=${month}`, { headers: authHeaders() });
+      if (!resp.ok) return;
+      empCalData = await resp.json();
+
+      document.getElementById('emp-cal-grid').innerHTML =
+        buildCalGrid(empCalData, year, month, true);
+
+      // Store leave ids in cells
+      const leaves = empCalData.leaves || {};
+      Object.entries(leaves).forEach(([day, lv]) => {
+        const cell = document.querySelector(`#emp-cal-grid .cal-day[data-day="${day}"]`);
+        if (cell) cell.dataset.leaveId = lv.id;
+      });
+
+      // Week stat
+      const today = new Date();
+      const todayY = today.getFullYear(), todayM = today.getMonth()+1, todayD = today.getDate();
+      const weekStat  = document.getElementById('emp-cal-week-stat');
+      const weekTotal = document.getElementById('emp-cal-week-total');
+      const weekDays  = document.getElementById('emp-cal-week-days');
+      if (year===todayY && month===todayM) {
+        const monday = todayD - ((today.getDay()+6)%7);
+        let wh2=0, dw=0;
+        for (let d=monday; d<=todayD; d++) { const h=empCalData.days[String(d)]||0; wh2+=h; if(h>0)dw++; }
+        const wh=Math.floor(wh2), wm=Math.round((wh2-wh)*60);
+        weekTotal.textContent = wm>0 ? `${wh} h ${wm} min` : `${wh} h`;
+        weekDays.textContent  = `· ${dw} día${dw!==1?'s':''} trabajado${dw!==1?'s':''}`;
+        weekStat.style.display = 'block';
+      } else {
+        weekStat.style.display = 'none';
+      }
+    }
+
+    // Click on employee calendar cell → open leave modal
+    document.getElementById('emp-cal-grid').addEventListener('click', function(e) {
+      const cell = e.target.closest('.cal-day[data-day]');
+      if (!cell) return;
+      const d = parseInt(cell.dataset.day);
+      const dateStr = toIso(empCalYear, empCalMonth, d);
+      const existingLeaveId = cell.dataset.leaveId || null;
+      const leave = empCalData && empCalData.leaves ? empCalData.leaves[String(d)] : null;
+
+      leaveTitle.textContent = `${d} de ${EXEC_MONTH_NAMES[empCalMonth-1]} ${empCalYear}`;
+      leaveType.value  = leave ? leave.type  : 'vacacion';
+      leaveStart.value = dateStr;
+      leaveEnd.value   = dateStr;
+      leaveNote.value  = leave ? (leave.note || '') : '';
+      activeLeaveId    = existingLeaveId;
+      leaveDelete.style.display = existingLeaveId ? 'block' : 'none';
+      modalLeave.showModal();
+    });
+
+    document.getElementById('emp-cal-prev').addEventListener('click', function() {
+      let y=empCalYear, m=empCalMonth-1; if(m<1){m=12;y--;} loadEmpCalendar(empCalId,y,m);
+    });
+    document.getElementById('emp-cal-next').addEventListener('click', function() {
+      let y=empCalYear, m=empCalMonth+1; if(m>12){m=1;y++;} loadEmpCalendar(empCalId,y,m);
+    });
+    document.getElementById('emp-cal-close').addEventListener('click', function() {
+      modalEmpCal.close();
+    });
+
+    document.getElementById('employee-tbody').addEventListener('click', function(e) {
+      const btn = e.target.closest('.btn-emp-cal');
+      if (!btn) return;
+      empCalId = btn.dataset.id;
+      document.getElementById('emp-cal-name').textContent = btn.dataset.name;
+      const n = new Date();
+      loadEmpCalendar(empCalId, n.getFullYear(), n.getMonth()+1);
+      modalEmpCal.showModal();
+    });
+
     // Init
+    const _now = new Date();
+    loadExecCalendarFull(_now.getFullYear(), _now.getMonth()+1);
     loadOverview();
     let poller = setInterval(loadOverview, REFRESH_INTERVAL);
 

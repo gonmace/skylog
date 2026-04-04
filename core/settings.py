@@ -151,9 +151,9 @@ else:
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 # SameSite=None permite que las cookies se envíen en el iframe cross-origin (sky.redlinegs.com → skylog.redlinegs.com)
-# Requiere Secure=True, que ya está garantizado por CSRF_COOKIE_SECURE/SESSION_COOKIE_SECURE en producción
-CSRF_COOKIE_SAMESITE = 'None'
-SESSION_COOKIE_SAMESITE = 'None'
+# Requiere Secure=True — solo aplica en producción (HTTPS). En dev se usa Lax para evitar loop en admin.
+CSRF_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
+SESSION_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
 
 if not DEBUG:

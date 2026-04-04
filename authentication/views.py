@@ -412,6 +412,88 @@ class AgentDownloadView(APIView):
         return response
 
 
+class DevLoginView(View):
+    """Login automático para desarrollo local. Solo disponible con DEBUG=True."""
+
+    def get(self, request):
+        if not settings.DEBUG:
+            from django.http import Http404
+            raise Http404
+
+        role = request.GET.get('role', 'executive')  # 'executive' | 'employee'
+        username = f'dev_{role}'
+
+        is_executive = (role == 'executive')
+        user, _ = User.objects.get_or_create(username=username, defaults={
+            'first_name': 'Dev',
+            'last_name': role.capitalize(),
+            'email': f'{username}@localhost',
+        })
+
+        from employees.models import Employee
+        employee, _ = Employee.objects.get_or_create(
+            nextcloud_username=username,
+            defaults={
+                'user': user,
+                'full_name': f'Dev {role.capitalize()}',
+                'is_executive': is_executive,
+                'skylog_access': True,
+                'is_active': True,
+            },
+        )
+        # Sincronizar en caso de que ya existiera con valores distintos
+        changed = []
+        if employee.is_executive != is_executive:
+            employee.is_executive = is_executive; changed.append('is_executive')
+        if not employee.skylog_access:
+            employee.skylog_access = True; changed.append('skylog_access')
+        if changed:
+            employee.save(update_fields=changed)
+
+        refresh = RefreshToken.for_user(user)
+        access  = str(refresh.access_token)
+        ref     = str(refresh)
+
+        return_url = settings.NEXTCLOUD_RETURN_URL or request.build_absolute_uri('/dashboard/')
+        response = render(request, 'authentication/oauth2_success.html', {
+            'access': access,
+            'refresh': ref,
+            'redirect_url': return_url,
+        })
+        _set_jwt_cookies(response, access, ref)
+        return response
+
+
+class MobileLoginView(APIView):
+    """Login con usuario/contraseña para usuarios móviles creados en el admin."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from django.contrib.auth import authenticate
+        username = request.data.get('username', '').strip()
+        password = request.data.get('password', '')
+        if not username or not password:
+            return Response({'error': 'Usuario y contraseña requeridos'}, status=400)
+
+        user = authenticate(request, username=username, password=password)
+        if user is None:
+            return Response({'error': 'Credenciales inválidas'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            employee = user.employee
+        except Exception:
+            return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
+
+        refresh = RefreshToken.for_user(user)
+        access  = str(refresh.access_token)
+        ref     = str(refresh)
+
+        response = Response({'status': 'ok', 'access': access, 'refresh': ref,
+                             'is_mobile': employee.is_mobile})
+        _set_jwt_cookies(response, access, ref)
+        return response
+
+
 class AgentInstallerView(APIView):
     """Descarga un ZIP con el installer para actualizaciones (sin config.json)."""
     permission_classes = [IsAuthenticated]

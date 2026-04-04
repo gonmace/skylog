@@ -54,3 +54,32 @@ class AgentConsumer(AsyncWebsocketConsumer):
         """Reenvía un comando de captura al agente conectado."""
         await self.send(text_data=json.dumps({'command': event.get('command', 'capture')}))
         log.info('Comando de captura enviado al agente employee_id=%s', self.employee_id)
+
+
+class DashboardConsumer(AsyncWebsocketConsumer):
+    """WebSocket para el dashboard del navegador — recibe notificaciones en tiempo real."""
+
+    async def connect(self):
+        user, employee, _ = await database_sync_to_async(get_user_from_ws_scope)(self.scope)
+
+        if isinstance(user, AnonymousUser) or employee is None:
+            await self.close(code=4001)
+            return
+
+        self.employee_id = employee.pk
+        self.group_name = f'dashboard_{employee.pk}'
+
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+        log.info('Dashboard WS conectado: employee_id=%s', self.employee_id)
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        pass
+
+    async def new_message(self, event):
+        """Notifica al browser que hay un mensaje nuevo pendiente."""
+        await self.send(text_data=json.dumps({'type': 'new_message'}))

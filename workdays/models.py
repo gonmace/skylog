@@ -40,6 +40,11 @@ class Workday(models.Model):
     end_time = models.DateTimeField(null=True, blank=True)
     duration_minutes = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_IN_PROGRESS)
+    auto_closed = models.BooleanField(default=False)
+    start_latitude  = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    start_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    end_latitude    = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    end_longitude   = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
 
     def __str__(self):
         return f"{self.employee.full_name} — {self.start_time.strftime('%Y-%m-%d')}"
@@ -98,3 +103,65 @@ class ExecutiveMessage(models.Model):
         verbose_name = 'Mensaje ejecutivo'
         verbose_name_plural = 'Mensajes ejecutivos'
         indexes = [models.Index(fields=['recipient', 'acknowledged_at'])]
+
+
+class CalendarNote(models.Model):
+    """Nota global en el calendario (feriado, evento). Visible para todos los empleados."""
+    TYPE_FERIADO = 'feriado'
+    TYPE_EVENTO  = 'evento'
+    TYPE_OTRO    = 'otro'
+    TYPE_CHOICES = [
+        (TYPE_FERIADO, 'Feriado'),
+        (TYPE_EVENTO,  'Evento'),
+        (TYPE_OTRO,    'Otro'),
+    ]
+    date       = models.DateField()
+    text       = models.CharField(max_length=200)
+    note_type  = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_FERIADO)
+    created_by = models.ForeignKey(
+        'employees.Employee', on_delete=models.SET_NULL,
+        null=True, related_name='calendar_notes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['date']
+        verbose_name = 'Nota de calendario'
+        verbose_name_plural = 'Notas de calendario'
+        indexes = [models.Index(fields=['date'])]
+
+    def __str__(self):
+        return f"{self.date} — {self.text}"
+
+
+class EmployeeLeave(models.Model):
+    """Ausencia registrada para un empleado (vacación, licencia, permiso)."""
+    TYPE_VACACION = 'vacacion'
+    TYPE_LICENCIA = 'licencia'
+    TYPE_PERMISO  = 'permiso'
+    TYPE_CHOICES  = [
+        (TYPE_VACACION, 'Vacación'),
+        (TYPE_LICENCIA, 'Licencia'),
+        (TYPE_PERMISO,  'Permiso'),
+    ]
+    employee   = models.ForeignKey(
+        'employees.Employee', on_delete=models.CASCADE, related_name='leaves',
+    )
+    start_date = models.DateField()
+    end_date   = models.DateField()
+    leave_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    note       = models.CharField(max_length=200, blank=True)
+    created_by = models.ForeignKey(
+        'employees.Employee', on_delete=models.SET_NULL,
+        null=True, related_name='created_leaves',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-start_date']
+        verbose_name = 'Ausencia'
+        verbose_name_plural = 'Ausencias'
+        indexes = [models.Index(fields=['employee', 'start_date', 'end_date'])]
+
+    def __str__(self):
+        return f"{self.employee.full_name} — {self.leave_type} {self.start_date}→{self.end_date}"

@@ -8,12 +8,14 @@ from .views import (
     AgentDownloadView,
     AgentInstallerView,
     AgentSetupAuthorizeView,
+    MobileLoginView,
 )
 
 urlpatterns = [
     path('auth/me/', MeView.as_view()),
     path('auth/claim-token/', ClaimIframeJWTView.as_view()),
     path('auth/token/refresh/', CookieTokenRefreshView.as_view()),
+    path('auth/mobile-login/', MobileLoginView.as_view()),
     path('agent/token/', AgentTokenPollView.as_view()),
     path('agent/activate/', AgentActivateView.as_view()),
     path('agent/download/', AgentDownloadView.as_view()),
