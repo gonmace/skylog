@@ -269,6 +269,28 @@
   .cp-modal-btn.confirm-blue   { font-weight: 600; color: var(--cp-blue); }
   .cp-modal-btn.confirm-orange { font-weight: 600; color: var(--cp-orange); }
   .cp-modal-btn.confirm-orange:hover { background: color-mix(in srgb, var(--cp-orange) 8%, transparent); }
+  .message-banner {
+    border: 1px solid color-mix(in srgb, var(--cp-orange) 30%, transparent);
+    background: color-mix(in srgb, var(--cp-orange) 8%, transparent);
+    border-radius: 16px; padding: 16px 20px;
+    display: flex; align-items: flex-start; gap: 14px;
+  }
+  .btn-msg-done {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 16px; border-radius: 10px; white-space: nowrap;
+    background: color-mix(in srgb, var(--cp-orange) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cp-orange) 30%, transparent);
+    color: var(--cp-orange); font-size: 0.8rem; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-send-msg {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 8px;
+    background: color-mix(in srgb, var(--cp-orange) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cp-orange) 30%, transparent);
+    color: var(--cp-orange); cursor: pointer;
+  }
+  .btn-send-msg:hover { background: color-mix(in srgb, var(--cp-orange) 25%, transparent); }
 </style>
 
 <div class="cupertino-page">
@@ -343,6 +365,9 @@
           </div>
         </div>
       </div>
+
+      <!-- Executive messages -->
+      <div id="messages-container" class="hidden flex flex-col gap-3"></div>
 
       <!-- Status card -->
       <div id="status-card" class="cupertino-card overflow-hidden">
@@ -533,6 +558,7 @@
               <th>Agente</th>
               <th style="text-align:center">Screenshots</th>
               <th style="text-align:center">Skylog</th>
+              <th style="text-align:center;padding:0 8px">Mensaje</th>
             </tr>
           </thead>
           <tbody id="employee-tbody"></tbody>
@@ -698,6 +724,27 @@
     </div>
     <div class="px-6 pb-6 flex justify-end">
       <button id="btn-dl-close" class="btn-ios-ghost">Cerrar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Executive: enviar mensaje -->
+<dialog id="modal-send-message" class="modal modal-ios">
+  <div class="modal-box max-w-md">
+    <div class="px-6 pt-6 pb-4 cupertino-divider" style="border-top:none;border-bottom:1px solid var(--cp-divider)">
+      <h3 class="font-bold text-lg" style="color:var(--cp-text-hi)">Enviar mensaje</h3>
+      <p id="modal-msg-recipient" class="text-sm mt-0.5" style="color:var(--cp-text-lo)"></p>
+    </div>
+    <div class="px-6 py-5 flex flex-col gap-3">
+      <textarea id="modal-msg-body" class="textarea-ios" rows="4" placeholder="Escribe tu mensaje aquí..."></textarea>
+      <div id="modal-msg-error" class="hidden flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium" style="background:color-mix(in srgb, var(--cp-red) 12%, transparent);color:var(--cp-red);border:1px solid color-mix(in srgb, var(--cp-red) 20%, transparent)">
+        <span id="modal-msg-error-text"></span>
+      </div>
+    </div>
+    <div class="px-6 pb-6 flex justify-end gap-2">
+      <button id="btn-msg-cancel" class="btn-ios-ghost">Cancelar</button>
+      <button id="btn-msg-send" class="btn-ios-primary">Enviar</button>
     </div>
   </div>
   <form method="dialog" class="modal-backdrop"><button>close</button></form>

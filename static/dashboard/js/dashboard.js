@@ -30,6 +30,11 @@
     };
   }
 
+  function getCsrfToken() {
+    const match = document.cookie.match(/csrftoken=([^;]+)/);
+    return match ? match[1] : '';
+  }
+
   // Refrescar el access token proactivamente cada 90 min para que la sesión no caduque nunca
   setInterval(async () => { await refreshAccessToken(); }, 90 * 60 * 1000);
 
@@ -154,11 +159,6 @@
     const activitiesPlanned = document.getElementById('activities-planned');
 
     let activeWorkdayId = null;
-
-    function getCsrfToken() {
-      const match = document.cookie.match(/csrftoken=([^;]+)/);
-      return match ? match[1] : '';
-    }
 
     function formatTime(isoString) {
       return new Date(isoString).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -484,10 +484,50 @@
       });
     }
 
+    async function loadPendingMessages() {
+      try {
+        const resp = await fetch('/api/messages/pending/', { headers: authHeaders() });
+        if (!resp.ok) return;
+        const messages = await resp.json();
+        const container = document.getElementById('messages-container');
+        if (!messages.length) { container.classList.add('hidden'); container.innerHTML = ''; return; }
+        container.innerHTML = messages.map(m => `
+          <div class="message-banner cupertino-card" id="msg-${m.id}">
+            <div style="flex:1">
+              <p class="text-xs font-semibold mb-1" style="color:var(--cp-orange)">${m.sender_name}</p>
+              <p class="text-sm" style="color:var(--cp-text-hi);white-space:pre-wrap">${m.body}</p>
+              <p class="text-xs mt-2" style="color:var(--cp-text-dim)">${new Date(m.sent_at).toLocaleString('es-BO')}</p>
+            </div>
+            <button class="btn-msg-done btn-acknowledge" data-msg-id="${m.id}">Listo</button>
+          </div>`).join('');
+        container.classList.remove('hidden');
+      } catch(e) {}
+    }
+
+    document.getElementById('messages-container').addEventListener('click', async (e) => {
+      const btn = e.target.closest('.btn-acknowledge');
+      if (!btn) return;
+      const msgId = btn.dataset.msgId;
+      btn.disabled = true;
+      try {
+        const resp = await fetch(`/api/messages/${msgId}/acknowledge/`, {
+          method: 'POST',
+          headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
+        });
+        if (resp.ok) {
+          document.getElementById(`msg-${msgId}`)?.remove();
+          const container = document.getElementById('messages-container');
+          if (!container.querySelector('.message-banner')) container.classList.add('hidden');
+        } else { btn.disabled = false; }
+      } catch(e) { btn.disabled = false; }
+    });
+
     // Init
     checkAgentAlive().then(updateAgentStatus);
     loadWorkdayStatus();
     loadLastReport();
+    loadPendingMessages();
+    setInterval(loadPendingMessages, 60000);
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -547,6 +587,12 @@
       const rowStyle     = disabled ? 'opacity:0.35;pointer-events:none' : '';
       const ssDisabled   = disabled ? 'disabled' : '';
 
+      const msgBtn = `<button class="btn-send-msg" data-id="${emp.id}" data-name="${emp.full_name || emp.id}" title="Enviar mensaje">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-3 3v-3z"/>
+        </svg>
+      </button>`;
+
       return `<tr style="${disabled ? 'background:var(--cp-row-disabled)' : ''}">
         <td style="${rowStyle}">
           <div style="display:flex;align-items:center;gap:10px">
@@ -579,6 +625,7 @@
             <span class="ios-toggle-track"></span>
           </label>
         </td>
+        <td style="text-align:center">${msgBtn}</td>
       </tr>`;
     }
 
@@ -722,6 +769,58 @@
       const intervalCell = t.closest('tr')?.querySelector('.interval-cell');
       if (intervalCell) { intervalCell.dataset.prev = intervalCell.innerHTML; intervalCell.innerHTML = ''; }
       await applyScreenshotsToggle(t, false);
+    });
+
+    // Send message modal
+    const modalSendMsg  = document.getElementById('modal-send-message');
+    const btnMsgCancel  = document.getElementById('btn-msg-cancel');
+    const btnMsgSend    = document.getElementById('btn-msg-send');
+    const modalMsgBody  = document.getElementById('modal-msg-body');
+    const modalMsgRecip = document.getElementById('modal-msg-recipient');
+    const modalMsgErrEl = document.getElementById('modal-msg-error');
+    const modalMsgErrTxt= document.getElementById('modal-msg-error-text');
+    let pendingMsgEmpId = null;
+
+    document.getElementById('employee-tbody').addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-send-msg');
+      if (!btn) return;
+      pendingMsgEmpId = btn.dataset.id;
+      modalMsgRecip.textContent = `Para: ${btn.dataset.name}`;
+      modalMsgBody.value = '';
+      modalMsgErrEl.classList.add('hidden');
+      btnMsgSend.disabled = false;
+      btnMsgSend.textContent = 'Enviar';
+      modalSendMsg.showModal();
+    });
+
+    btnMsgCancel.addEventListener('click', () => { modalSendMsg.close(); pendingMsgEmpId = null; });
+
+    btnMsgSend.addEventListener('click', async () => {
+      const body = modalMsgBody.value.trim();
+      if (!body) { modalMsgErrEl.classList.remove('hidden'); modalMsgErrTxt.textContent = 'El mensaje no puede estar vacío.'; return; }
+      modalMsgErrEl.classList.add('hidden');
+      btnMsgSend.disabled = true;
+      btnMsgSend.textContent = 'Enviando...';
+      try {
+        const resp = await fetch(`/api/employees/${pendingMsgEmpId}/message/`, {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+          body: JSON.stringify({ body }),
+        });
+        if (resp.ok) { modalSendMsg.close(); pendingMsgEmpId = null; }
+        else {
+          const d = await resp.json().catch(() => ({}));
+          modalMsgErrEl.classList.remove('hidden');
+          modalMsgErrTxt.textContent = d.error || 'Error al enviar';
+          btnMsgSend.disabled = false;
+          btnMsgSend.textContent = 'Enviar';
+        }
+      } catch(e) {
+        modalMsgErrEl.classList.remove('hidden');
+        modalMsgErrTxt.textContent = 'Error de conexión';
+        btnMsgSend.disabled = false;
+        btnMsgSend.textContent = 'Enviar';
+      }
     });
 
     // Init

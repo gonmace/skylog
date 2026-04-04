@@ -7,7 +7,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from employees.models import Employee
 from authentication.serializers import AGENT_ACTIVE_THRESHOLD_MINUTES
-from .models import Workday, DailyReport, CaptureConfig, InactivityPeriod
+from .models import Workday, DailyReport, CaptureConfig, InactivityPeriod, ExecutiveMessage
 
 
 class WorkdayStartView(APIView):
@@ -336,3 +336,82 @@ class LastReportView(APIView):
             'activities_planned': last.daily_report.activities_planned,
             'date': last.end_time.date(),
         })
+
+
+class SendMessageView(APIView):
+    """Ejecutivo envía un mensaje a un empleado específico."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, employee_id):
+        try:
+            executive = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        if not executive.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        body = request.data.get('body', '').strip()
+        if not body:
+            return Response({'error': 'El mensaje no puede estar vacío'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            recipient = Employee.objects.get(id=employee_id, is_active=True, is_executive=False)
+        except Employee.DoesNotExist:
+            return Response({'error': 'Empleado no encontrado'}, status=404)
+
+        message = ExecutiveMessage.objects.create(
+            sender=executive,
+            recipient=recipient,
+            body=body,
+        )
+        return Response({'id': message.id, 'sent_at': message.sent_at}, status=status.HTTP_201_CREATED)
+
+
+class PendingMessagesView(APIView):
+    """Empleado obtiene sus mensajes pendientes de confirmar."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            employee = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        messages = (
+            ExecutiveMessage.objects
+            .filter(recipient=employee, acknowledged_at__isnull=True)
+            .select_related('sender')
+        )
+        data = [
+            {
+                'id': m.id,
+                'body': m.body,
+                'sent_at': m.sent_at,
+                'sender_name': m.sender.full_name,
+            }
+            for m in messages
+        ]
+        return Response(data)
+
+
+class AcknowledgeMessageView(APIView):
+    """Empleado confirma haber leído un mensaje."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, message_id):
+        try:
+            employee = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        try:
+            message = ExecutiveMessage.objects.get(id=message_id, recipient=employee)
+        except ExecutiveMessage.DoesNotExist:
+            return Response({'error': 'Mensaje no encontrado'}, status=404)
+
+        if message.acknowledged_at is None:
+            message.acknowledged_at = timezone.now()
+            message.save(update_fields=['acknowledged_at'])
+
+        return Response({'ok': True})

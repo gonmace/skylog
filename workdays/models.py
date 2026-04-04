@@ -81,3 +81,20 @@ class DailyReport(models.Model):
     class Meta:
         verbose_name = 'Reporte diario'
         verbose_name_plural = 'Reportes diarios'
+
+
+class ExecutiveMessage(models.Model):
+    recipient = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='executive_messages')
+    sender = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='sent_messages')
+    body = models.TextField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Mensaje de {self.sender.full_name} a {self.recipient.full_name} — {self.sent_at.strftime('%Y-%m-%d %H:%M')}"
+
+    class Meta:
+        ordering = ['-sent_at']
+        verbose_name = 'Mensaje ejecutivo'
+        verbose_name_plural = 'Mensajes ejecutivos'
+        indexes = [models.Index(fields=['recipient', 'acknowledged_at'])]
