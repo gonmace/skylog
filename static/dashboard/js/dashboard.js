@@ -770,12 +770,12 @@
 
       return `<tr style="${disabled ? 'background:var(--cp-row-disabled)' : ''}">
         <td style="${rowStyle}">
-          <div style="display:flex;align-items:center;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px;white-space:nowrap">
             <div class="avatar-circle">${initials(emp.full_name)}</div>
             <span style="font-weight:500;font-size:0.875rem">${emp.full_name}</span>
           </div>
         </td>
-        <td style="${rowStyle}">${disabled ? '<span style="color:var(--cp-text-dim)">—</span>' : workdayBadge}</td>
+        <td style="white-space:nowrap;${rowStyle}">${disabled ? '<span style="color:var(--cp-text-dim)">—</span>' : workdayBadge}</td>
         <td style="color:${autoClosed ? 'var(--cp-red)' : 'var(--cp-text-mid)'};font-size:0.82rem;${rowStyle}">${disabled ? '' : (isActive || autoClosed ? formatTime(workday.start_time) : '—')}</td>
         <td style="font-size:0.82rem;${rowStyle}">
           ${disabled ? '' : `<span style="color:${autoClosed ? 'var(--cp-red)' : 'var(--cp-text-mid)'}">${(isActive || autoClosed) ? formatDuration(workday.duration_minutes) : '—'}</span>
