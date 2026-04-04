@@ -61,7 +61,7 @@ class WorkdayEndView(APIView):
         if not workday_id:
             return Response({'error': 'workday_id es requerido'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if employee.is_mobile and (not lat or not lng):
+        if employee.solo_movil and (not lat or not lng):
             return Response(
                 {'error': 'La ubicación es requerida para finalizar la jornada', 'location_required': True},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -261,7 +261,7 @@ class EmployeeOverviewView(APIView):
             result.append({
                 'id': emp.id,
                 'full_name': emp.full_name,
-                'is_mobile': emp.is_mobile,
+                'solo_movil': emp.solo_movil,
                 'agent_is_active': agent_active,
                 'agent_version': emp.agent_version,
                 'agent_last_seen': emp.agent_last_seen,

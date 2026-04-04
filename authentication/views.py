@@ -489,7 +489,7 @@ class MobileLoginView(APIView):
         ref     = str(refresh)
 
         response = Response({'status': 'ok', 'access': access, 'refresh': ref,
-                             'is_mobile': employee.is_mobile})
+                             'solo_movil': employee.solo_movil})
         _set_jwt_cookies(response, access, ref)
         return response
 

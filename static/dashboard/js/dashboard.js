@@ -346,7 +346,7 @@
 
       // Geolocalización (requerida para usuarios móviles)
       let location = null;
-      if (profileData.is_mobile) {
+      if (profileData.solo_movil) {
         btnModalSubmit.textContent = 'Obteniendo ubicación...';
         location = await getLocation();
         if (!location) {
