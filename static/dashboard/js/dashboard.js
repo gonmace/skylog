@@ -219,6 +219,19 @@
     }
 
     function updateAgentStatus(agentIsActive) {
+      // Empleados solo_movil: no necesitan agente, todo habilitado siempre
+      if (profileData?.solo_movil) {
+        stopSetupPolling();
+        setupRequired.classList.add('hidden');
+        statusCard.classList.remove('hidden');
+        document.getElementById('agent-version-card')?.classList.add('hidden');
+        btnStart.disabled = false;
+        btnStart.title    = '';
+        btnEnd.disabled   = false;
+        btnEnd.title      = '';
+        return;
+      }
+
       const neverInstalled = !profileData?.agent_version && !profileData?.agent_last_seen;
       const installed  = profileData?.agent_version || '';
       const latest     = profileData?.agent_latest_version || '';
