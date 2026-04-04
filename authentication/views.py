@@ -413,15 +413,19 @@ class AgentDownloadView(APIView):
 
 
 class AgentInstallerView(APIView):
-    """Descarga el installer RedLineGS_setup.exe directamente (para actualizaciones)."""
+    """Descarga un ZIP con el installer para actualizaciones (sin config.json)."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         import os
-        from django.http import FileResponse
+        from django.http import HttpResponse
         installer_path = os.path.join(settings.BASE_DIR, 'agent', 'dist', 'RedLineGS_setup.exe')
         if not os.path.exists(installer_path):
             return Response({'error': 'El instalador no está disponible'}, status=503)
-        response = FileResponse(open(installer_path, 'rb'), content_type='application/octet-stream')
-        response['Content-Disposition'] = 'attachment; filename="RedLineGS_setup.exe"'
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(installer_path, 'RedLineGS_setup.exe')
+        buf.seek(0)
+        response = HttpResponse(buf.read(), content_type='application/zip')
+        response['Content-Disposition'] = 'attachment; filename="RedLineGS_update.zip"'
         return response
