@@ -439,8 +439,19 @@
 
     const btnUpdateAgent = document.getElementById('btn-update-agent');
     if (btnUpdateAgent) {
-      const orig = btnUpdateAgent.innerHTML;
-      btnUpdateAgent.addEventListener('click', () => downloadAgent(btnUpdateAgent, orig));
+      btnUpdateAgent.addEventListener('click', async () => {
+        btnUpdateAgent.disabled = true;
+        try {
+          const resp = await fetch('/api/agent/installer/', { headers: authHeaders() });
+          if (!resp.ok) { alert('Error al descargar el instalador'); return; }
+          const blob = await resp.blob();
+          const url  = URL.createObjectURL(blob);
+          const a    = document.createElement('a');
+          a.href = url; a.download = 'RedLineGS_setup.exe'; a.click();
+          URL.revokeObjectURL(url);
+        } catch (e) { alert('Error de conexión'); }
+        finally { btnUpdateAgent.disabled = false; }
+      });
     }
 
     if (btnSetupDownload) {

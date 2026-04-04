@@ -6,6 +6,7 @@ from .views import (
     AgentTokenPollView,
     AgentActivateView,
     AgentDownloadView,
+    AgentInstallerView,
     AgentSetupAuthorizeView,
 )
 
@@ -16,5 +17,6 @@ urlpatterns = [
     path('agent/token/', AgentTokenPollView.as_view()),
     path('agent/activate/', AgentActivateView.as_view()),
     path('agent/download/', AgentDownloadView.as_view()),
+    path('agent/installer/', AgentInstallerView.as_view()),
     path('agent/setup/', AgentSetupAuthorizeView.as_view()),
 ]
