@@ -200,7 +200,12 @@ class NextcloudOAuth2CallbackView(View):
                 device_token=device_token,
                 defaults={'jwt_access': django_access, 'jwt_refresh': django_refresh},
             )
-            return render(request, 'authentication/agent_setup_success.html')
+            response = render(request, 'authentication/agent_setup_success.html', {
+                'access': django_access,
+                'refresh': django_refresh,
+            })
+            _set_jwt_cookies(response, django_access, django_refresh)
+            return response
 
         # Login normal: guardar JWT en sesión para que el iframe pueda reclamarlo,
         # luego renderizar página que también guarda en localStorage y redirige.
