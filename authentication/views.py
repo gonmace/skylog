@@ -31,7 +31,7 @@ def _set_jwt_cookies(response, access, refresh):
     secure = not settings.DEBUG
     common = dict(path='/', samesite='None', httponly=False, secure=secure)
     response.set_cookie('access',  access,  max_age=7200,   **common)
-    response.set_cookie('refresh', refresh, max_age=604800, **common)
+    response.set_cookie('refresh', refresh, max_age=2592000, **common)
 
 
 def _clear_jwt_cookies(response):
