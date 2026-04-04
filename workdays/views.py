@@ -245,11 +245,14 @@ class CaptureNowView(APIView):
 
         from asgiref.sync import async_to_sync
         from channels.layers import get_channel_layer
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f'agent_{employee_id}',
-            {'type': 'capture_command', 'command': 'capture'},
-        )
+        try:
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f'agent_{employee_id}',
+                {'type': 'capture_command', 'command': 'capture'},
+            )
+        except Exception as e:
+            return Response({'error': f'Error al enviar comando al agente: {e}'}, status=500)
         return Response({'status': 'ok'})
 
 

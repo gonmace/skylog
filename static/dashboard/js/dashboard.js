@@ -613,11 +613,24 @@
       const btn = e.target.closest('.btn-capture');
       if (!btn) return;
       const employeeId = btn.dataset.id;
+      const origHTML = btn.innerHTML;
       btn.disabled = true;
+      btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>';
       try {
-        await fetch(`/api/employees/${employeeId}/capture/`, { method: 'POST', headers: authHeaders() });
-      } finally {
-        setTimeout(() => { btn.disabled = false; }, 3000);
+        const resp = await fetch(`/api/employees/${employeeId}/capture/`, {
+          method: 'POST',
+          headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
+        });
+        if (resp.ok) {
+          btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+          setTimeout(() => { btn.innerHTML = origHTML; btn.disabled = false; }, 2000);
+        } else {
+          btn.innerHTML = origHTML;
+          btn.disabled = false;
+        }
+      } catch (e) {
+        btn.innerHTML = origHTML;
+        btn.disabled = false;
       }
     });
 
