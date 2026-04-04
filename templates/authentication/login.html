@@ -32,7 +32,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 32px;
+    gap: 28px;
   }
   .login-logo {
     width: 72px;
@@ -54,7 +54,7 @@
     font-size: 0.875rem;
     color: var(--cp-text-lo);
     text-align: center;
-    margin-top: -20px;
+    margin-top: -12px;
   }
   .login-btn {
     width: 100%;
@@ -75,6 +75,60 @@
     box-shadow: 0 2px 12px rgba(0,0,0,0.25);
   }
   .login-btn:hover { opacity: 0.88; }
+  .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .login-divider {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--cp-text-dim);
+    font-size: 0.75rem;
+  }
+  .login-divider::before,
+  .login-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--cp-surface-border);
+  }
+  .login-form {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .login-input {
+    width: 100%;
+    padding: 13px 16px;
+    background: var(--cp-bg-end);
+    border: 1px solid var(--cp-surface-border);
+    border-radius: 12px;
+    color: var(--cp-text-hi);
+    font-size: 0.9375rem;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+  .login-input:focus { border-color: var(--color-primary); }
+  .login-input::placeholder { color: var(--cp-text-dim); }
+  .login-btn-secondary {
+    background: var(--cp-bg-end);
+    border: 1px solid var(--cp-surface-border);
+    color: var(--cp-text-hi);
+    box-shadow: none;
+  }
+  .login-btn-secondary:hover { background: var(--cp-surface-border); opacity: 1; }
+  .login-error {
+    width: 100%;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--cp-red) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cp-red) 40%, transparent);
+    border-radius: 10px;
+    color: var(--cp-red);
+    font-size: 0.8125rem;
+    text-align: center;
+    display: none;
+  }
   .login-footer {
     font-size: 0.75rem;
     color: var(--cp-text-dim);
@@ -99,8 +153,73 @@
       Entrar con Nextcloud
     </a>
 
+    <div class="login-divider">o</div>
+
+    <div class="login-form">
+      <input id="login-username" class="login-input" type="text" placeholder="Usuario" autocomplete="username" autocapitalize="none">
+      <input id="login-password" class="login-input" type="password" placeholder="Contraseña" autocomplete="current-password">
+      <div id="login-error" class="login-error"></div>
+      <button id="login-submit" class="login-btn login-btn-secondary" onclick="doLogin()">
+        Iniciar sesión
+      </button>
+    </div>
+
     <p class="login-footer">Usa tu cuenta de <span>sky.redlinegs.com</span></p>
 
   </div>
 </div>
+
+<script>
+  const usernameInput = document.getElementById('login-username');
+  const passwordInput = document.getElementById('login-password');
+  const submitBtn     = document.getElementById('login-submit');
+  const errorBox      = document.getElementById('login-error');
+
+  [usernameInput, passwordInput].forEach(el => {
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  });
+
+  async function doLogin() {
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    errorBox.style.display = 'none';
+
+    if (!username || !password) {
+      showError('Ingresa usuario y contraseña.');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Ingresando…';
+
+    try {
+      const resp = await fetch('/api/auth/mobile-login/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        showError(data.error || 'Usuario o contraseña incorrectos.');
+        return;
+      }
+
+      localStorage.setItem('access', data.access);
+      localStorage.setItem('refresh', data.refresh);
+      window.location.href = data.is_mobile ? '/mobile/' : '/dashboard/';
+
+    } catch {
+      showError('Error de conexión. Intenta de nuevo.');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Iniciar sesión';
+    }
+  }
+
+  function showError(msg) {
+    errorBox.textContent = msg;
+    errorBox.style.display = 'block';
+  }
+</script>
 {% endblock %}
