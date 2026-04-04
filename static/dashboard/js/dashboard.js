@@ -440,7 +440,13 @@
     const btnUpdateAgent = document.getElementById('btn-update-agent');
     if (btnUpdateAgent) {
       btnUpdateAgent.addEventListener('click', async () => {
+        const icon    = document.getElementById('btn-update-icon');
+        const spinner = document.getElementById('btn-update-spinner');
+        const label   = document.getElementById('btn-update-label');
         btnUpdateAgent.disabled = true;
+        icon.classList.add('hidden');
+        spinner.classList.remove('hidden');
+        label.textContent = 'Descargando...';
         try {
           const resp = await fetch('/api/agent/installer/', { headers: authHeaders() });
           if (!resp.ok) { alert('Error al descargar el instalador'); return; }
@@ -450,7 +456,12 @@
           a.href = url; a.download = 'RedLineGS_update.zip'; a.click();
           URL.revokeObjectURL(url);
         } catch (e) { alert('Error de conexión'); }
-        finally { btnUpdateAgent.disabled = false; }
+        finally {
+          btnUpdateAgent.disabled = false;
+          icon.classList.remove('hidden');
+          spinner.classList.add('hidden');
+          label.textContent = 'Actualizar';
+        }
       });
     }
 
