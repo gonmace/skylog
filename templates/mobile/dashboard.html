@@ -57,6 +57,55 @@
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
   .timer { font-size: 2.5rem; font-weight: 700; letter-spacing: -0.04em; color: white; }
   .timer-sub { font-size: 0.8rem; color: rgba(255,255,255,0.40); margin-top: 2px; }
+
+  /* ── Calendar ── */
+  .mob-cal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .mob-cal-title {
+    font-size: 0.95rem; font-weight: 700; color: rgba(255,255,255,0.85);
+    letter-spacing: -0.01em; text-transform: capitalize;
+  }
+  .mob-cal-nav {
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 8px; color: rgba(255,255,255,0.55);
+    width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 1rem; transition: background 0.15s;
+  }
+  .mob-cal-nav:hover { background: rgba(255,255,255,0.12); }
+  .mob-cal-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px;
+  }
+  .mob-cal-dow {
+    text-align: center; font-size: 0.62rem; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    color: rgba(255,255,255,0.25); padding: 4px 0 6px;
+  }
+  .mob-cal-day {
+    aspect-ratio: 1; border-radius: 10px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px;
+    font-size: 0.75rem; font-weight: 500;
+    color: rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.04);
+    position: relative;
+  }
+  .mob-cal-day.empty { background: transparent; }
+  .mob-cal-day.today { border: 1px solid rgba(59,130,246,0.45); color: #93c5fd; }
+  .mob-cal-day.has-work { background: rgba(34,197,94,0.12); color: rgba(255,255,255,0.85); }
+  .mob-cal-day.auto-closed { background: rgba(234,179,8,0.10); color: #fcd34d; }
+  .mob-cal-day.leave-vacacion { background: rgba(59,130,246,0.12); color: #93c5fd; }
+  .mob-cal-day.leave-licencia { background: rgba(249,115,22,0.12); color: #fdba74; }
+  .mob-cal-day.leave-permiso  { background: rgba(167,139,250,0.12); color: #c4b5fd; }
+  .mob-cal-day .cal-hours {
+    font-size: 0.6rem; font-weight: 600; opacity: 0.70; line-height: 1;
+  }
+  .mob-cal-week-stat {
+    margin-top: 10px; padding: 10px 14px;
+    background: rgba(255,255,255,0.04); border-radius: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
 </style>
 
 <div class="mob-page">
@@ -149,6 +198,20 @@
       <button id="mob-btn-end" class="mob-btn mob-btn-red">
         Finalizar jornada
       </button>
+    </div>
+
+    <!-- Calendar -->
+    <div class="mob-card" style="padding:20px;margin-top:20px">
+      <div class="mob-cal-header">
+        <button class="mob-cal-nav" id="cal-prev">‹</button>
+        <span class="mob-cal-title" id="cal-title">—</span>
+        <button class="mob-cal-nav" id="cal-next">›</button>
+      </div>
+      <div class="mob-cal-grid" id="cal-grid"></div>
+      <div class="mob-cal-week-stat" id="cal-week-stat" style="display:none">
+        <span style="font-size:0.75rem;color:rgba(255,255,255,0.40)">Última semana</span>
+        <span id="cal-week-total" style="font-size:0.85rem;font-weight:700;color:rgba(255,255,255,0.80)">—</span>
+      </div>
     </div>
 
   </div>
@@ -279,6 +342,8 @@
     var data = await r.json();
     if (data.active) showActive(data.workday_id, data.start_time);
     else             showInactive();
+
+    loadCalendar();
   }
 
   // ── Login ─────────────────────────────────────────────────
@@ -369,8 +434,134 @@
       var data = await r.json();
       if (!r.ok) { alert(data.error || 'Error al finalizar'); btn.disabled = false; btn.textContent = 'Finalizar jornada'; return; }
       showInactive();
+      loadCalendar();
     } catch(e) { alert('Error de conexión'); }
     btn.disabled = false; btn.textContent = 'Finalizar jornada';
+  });
+
+  // ── Calendar ──────────────────────────────────────────────
+  var calYear  = new Date().getFullYear();
+  var calMonth = new Date().getMonth() + 1;
+  var MESES = ['enero','febrero','marzo','abril','mayo','junio',
+               'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  var DIAS  = ['L','M','M','J','V','S','D'];
+
+  async function loadCalendar() {
+    var r = await apiFetch('/api/workday/monthly/?year=' + calYear + '&month=' + calMonth);
+    if (!r || !r.ok) return;
+    var data = await r.json();
+    renderCalendar(data);
+  }
+
+  function renderCalendar(data) {
+    document.getElementById('cal-title').textContent = MESES[calMonth - 1] + ' ' + calYear;
+
+    var workMap = {};
+    (data.workdays || []).forEach(function(w) {
+      var day = parseInt(w.date.split('-')[2]);
+      workMap[day] = w;
+    });
+    var autoClosed = new Set((data.auto_closed_days || []).map(function(d) { return parseInt(d.split('-')[2]); }));
+    var leaveMap = {};
+    (data.leaves || []).forEach(function(l) {
+      var s = new Date(l.start_date + 'T00:00:00');
+      var e = new Date(l.end_date   + 'T00:00:00');
+      for (var d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+        if (d.getFullYear() === calYear && d.getMonth() + 1 === calMonth) {
+          leaveMap[d.getDate()] = l.leave_type;
+        }
+      }
+    });
+    var noteMap = {};
+    (data.notes || []).forEach(function(n) {
+      var day = parseInt(n.date.split('-')[2]);
+      noteMap[day] = n.text;
+    });
+
+    var today   = new Date();
+    var isToday = today.getFullYear() === calYear && today.getMonth() + 1 === calMonth;
+    var todayD  = today.getDate();
+    var daysInMonth = new Date(calYear, calMonth, 0).getDate();
+    var firstDow    = (new Date(calYear, calMonth - 1, 1).getDay() + 6) % 7; // lunes=0
+
+    var grid = document.getElementById('cal-grid');
+    grid.innerHTML = '';
+
+    // Day-of-week headers
+    DIAS.forEach(function(d) {
+      var el = document.createElement('div');
+      el.className = 'mob-cal-dow';
+      el.textContent = d;
+      grid.appendChild(el);
+    });
+
+    // Empty cells before first day
+    for (var i = 0; i < firstDow; i++) {
+      var el = document.createElement('div');
+      el.className = 'mob-cal-day empty';
+      grid.appendChild(el);
+    }
+
+    for (var day = 1; day <= daysInMonth; day++) {
+      var el = document.createElement('div');
+      el.className = 'mob-cal-day';
+
+      var w = workMap[day];
+      var leaveType = leaveMap[day];
+      var isAuto = autoClosed.has(day);
+
+      if (leaveType) {
+        el.classList.add('leave-' + leaveType);
+      } else if (isAuto) {
+        el.classList.add('auto-closed');
+      } else if (w) {
+        el.classList.add('has-work');
+      }
+      if (isToday && day === todayD) el.classList.add('today');
+
+      var numEl = document.createElement('span');
+      numEl.textContent = day;
+      el.appendChild(numEl);
+
+      if (w && !leaveType) {
+        var h = Math.floor(w.hours);
+        var m = Math.round((w.hours - h) * 60);
+        var hoursEl = document.createElement('span');
+        hoursEl.className = 'cal-hours';
+        hoursEl.textContent = isAuto ? '!' : (h + 'h' + (m > 0 ? m + 'm' : ''));
+        el.appendChild(hoursEl);
+      } else if (leaveType) {
+        var tagEl = document.createElement('span');
+        tagEl.className = 'cal-hours';
+        tagEl.textContent = leaveType === 'vacacion' ? 'VAC' : leaveType === 'licencia' ? 'LIC' : 'PER';
+        el.appendChild(tagEl);
+      }
+
+      if (noteMap[day]) el.title = noteMap[day];
+      grid.appendChild(el);
+    }
+
+    // Week stat (last 7 days up to today or end of month)
+    var refDay = isToday ? todayD : daysInMonth;
+    var weekStart = refDay - 6;
+    var weekTotal = 0;
+    for (var d = weekStart; d <= refDay; d++) {
+      if (d >= 1 && workMap[d]) weekTotal += workMap[d].hours || 0;
+    }
+    var wh = Math.floor(weekTotal);
+    var wm = Math.round((weekTotal - wh) * 60);
+    var statEl = document.getElementById('cal-week-stat');
+    statEl.style.display = '';
+    document.getElementById('cal-week-total').textContent = wh + 'h' + (wm > 0 ? ' ' + wm + 'm' : '') + ' esta semana';
+  }
+
+  document.getElementById('cal-prev').addEventListener('click', function() {
+    calMonth--; if (calMonth < 1) { calMonth = 12; calYear--; }
+    loadCalendar();
+  });
+  document.getElementById('cal-next').addEventListener('click', function() {
+    calMonth++; if (calMonth > 12) { calMonth = 1; calYear++; }
+    loadCalendar();
   });
 
   // ── Bootstrap ─────────────────────────────────────────────
