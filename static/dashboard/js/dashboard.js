@@ -217,6 +217,9 @@
 
     function updateAgentStatus(agentIsActive) {
       const neverInstalled = !profileData?.agent_version && !profileData?.agent_last_seen;
+      const installed  = profileData?.agent_version || '';
+      const latest     = profileData?.agent_latest_version || '';
+      const outdated   = installed && latest && installed !== latest;
 
       if (neverInstalled && !agentIsActive) {
         setupRequired.classList.remove('hidden');
@@ -232,35 +235,41 @@
       setupRequired.classList.add('hidden');
       statusCard.classList.remove('hidden');
 
-      const msg = 'El agente no está activo. Asegúrate de que redline_agent.exe esté corriendo.';
-      btnStart.disabled = !agentIsActive;
-      btnStart.title    = agentIsActive ? '' : msg;
-      btnEnd.disabled   = !agentIsActive;
-      btnEnd.title      = agentIsActive ? '' : msg;
+      // Deshabilitar botones si offline O si versión desactualizada
+      const msgOffline  = 'El agente no está activo. Asegúrate de que redline_agent.exe esté corriendo.';
+      const msgOutdated = `Actualiza el agente a v${latest} para poder registrar jornadas.`;
+      const blocked     = !agentIsActive || outdated;
+      const blockMsg    = !agentIsActive ? msgOffline : msgOutdated;
+      btnStart.disabled = blocked;
+      btnStart.title    = blocked ? blockMsg : '';
+      btnEnd.disabled   = blocked;
+      btnEnd.title      = blocked ? blockMsg : '';
 
-      const card        = document.getElementById('agent-version-card');
-      const btnDl       = document.getElementById('btn-download-agent');
+      const card         = document.getElementById('agent-version-card');
+      const btnDl        = document.getElementById('btn-download-agent');
       const offlineBadge = document.getElementById('agent-offline-badge');
+      const versionText  = document.getElementById('agent-version-text');
+      const btnUpdate    = document.getElementById('btn-update-agent');
       if (!card) return;
 
-      if (agentIsActive) {
+      // Ocultar tarjeta solo si online y versión al día
+      if (agentIsActive && !outdated) {
         card.classList.add('hidden');
         if (btnDl) btnDl.classList.add('hidden');
         if (offlineBadge) offlineBadge.classList.add('hidden');
         return;
       }
-      if (btnDl) btnDl.classList.remove('hidden');
-      if (offlineBadge) offlineBadge.classList.remove('hidden');
 
       card.classList.remove('hidden');
-      const versionText = document.getElementById('agent-version-text');
-      const btnUpdate   = document.getElementById('btn-update-agent');
-      const installed   = profileData?.agent_version || '';
-      const latest      = profileData?.agent_latest_version || '';
+
+      // Mostrar badge offline solo si está offline
+      if (btnDl) btnDl.classList.toggle('hidden', agentIsActive);
+      if (offlineBadge) offlineBadge.classList.toggle('hidden', agentIsActive);
 
       if (!installed) {
         versionText.textContent = 'No instalado';
-      } else if (latest && installed !== latest) {
+        if (btnUpdate) btnUpdate.classList.add('hidden');
+      } else if (outdated) {
         versionText.textContent = `v${installed} → v${latest} disponible`;
         if (btnUpdate) btnUpdate.classList.remove('hidden');
       } else {
