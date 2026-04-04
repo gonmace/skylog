@@ -30,6 +30,9 @@
     };
   }
 
+  // Refrescar el access token proactivamente cada 90 min para que la sesión no caduque nunca
+  setInterval(async () => { await refreshAccessToken(); }, 90 * 60 * 1000);
+
   async function refreshAccessToken() {
     const refresh = getToken('refresh');
     if (!refresh) return false;
