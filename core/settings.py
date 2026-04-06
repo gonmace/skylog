@@ -123,7 +123,10 @@ WHITENOISE_MANIFEST_STRICT = False
 
 STORAGES = {
     'staticfiles': {
-        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+        # CompressedManifestStaticFilesStorage añade hash al nombre (dashboard.abc123.js)
+        # garantizando que el browser descargue el JS nuevo tras cada deploy,
+        # incluso con cache de 30 días en nginx y dentro de iframes (Nextcloud).
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
