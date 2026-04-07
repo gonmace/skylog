@@ -31,5 +31,5 @@ def get_user_from_ws_scope(scope):
         employee = getattr(user, 'employee', None)
         return user, employee, version
     except (TokenError, InvalidToken, User.DoesNotExist) as e:
-        log.debug('WS JWT auth failed: %s', e)
+        log.warning('WS JWT auth failed: %s', e)
         return AnonymousUser(), None, ''

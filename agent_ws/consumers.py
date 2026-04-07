@@ -16,7 +16,8 @@ class AgentConsumer(AsyncWebsocketConsumer):
         user, employee, version = await database_sync_to_async(get_user_from_ws_scope)(self.scope)
 
         if isinstance(user, AnonymousUser) or employee is None:
-            log.warning('WS rechazado: token inválido o sin perfil de empleado')
+            user_info = getattr(user, 'pk', 'anon')
+            log.warning('WS rechazado: token inválido o sin perfil de empleado (user_id=%s)', user_info)
             await self.close(code=4001)
             return
 
