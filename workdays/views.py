@@ -1,6 +1,11 @@
 import calendar as _cal
+import io
+import os
 from datetime import timedelta, datetime as _datetime, time as _time, date as _date
+from django.conf import settings
 from django.db import models
+from django.http import HttpResponse
+from django.shortcuts import render, redirect
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -822,3 +827,424 @@ class EmployeeLeaveDetailView(APIView):
             return Response({'error': 'Ausencia no encontrada'}, status=404)
         leave.delete()
         return Response({'ok': True})
+
+
+_MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+_DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+
+def reporte_view(request):
+    """Sirve el shell HTML del reporte. Los datos se cargan desde /api/reporte/ via JS."""
+    local_now = _local_now()
+    years_range = list(range(local_now.year - 2, local_now.year + 1))
+    return render(request, 'workdays/reporte.html', {
+        'current_year': local_now.year,
+        'current_month': local_now.month,
+        'months': list(enumerate(_MONTH_NAMES, 1)),
+        'years': years_range,
+    })
+
+
+class ReporteAPIView(APIView):
+    """Datos del reporte de asistencia. Solo ejecutivos."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            executive = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not executive.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        local_now = _local_now()
+        filter_mode = request.query_params.get('mode', 'month')
+
+        if filter_mode == 'range':
+            from_str = request.query_params.get('from', '')
+            to_str   = request.query_params.get('to', '')
+            try:
+                from_date = _date.fromisoformat(from_str)
+                to_date   = _date.fromisoformat(to_str)
+                if to_date < from_date:
+                    to_date = from_date
+            except (ValueError, TypeError):
+                filter_mode = 'month'
+
+        if filter_mode == 'month':
+            try:
+                sel_year  = int(request.query_params.get('year',  local_now.year))
+                sel_month = int(request.query_params.get('month', local_now.month))
+                if not (1 <= sel_month <= 12):
+                    raise ValueError
+            except (ValueError, TypeError):
+                sel_year, sel_month = local_now.year, local_now.month
+            from_date = _date(sel_year, sel_month, 1)
+            to_date   = _date(sel_year, sel_month, _cal.monthrange(sel_year, sel_month)[1])
+            label = f'{_MONTH_NAMES[sel_month - 1]} {sel_year}'
+        else:
+            label = f'{from_date.strftime("%d/%m/%Y")} — {to_date.strftime("%d/%m/%Y")}'
+
+        first_dt = timezone.make_aware(_datetime.combine(from_date, _time(0, 0, 0)))
+        last_dt  = timezone.make_aware(_datetime.combine(to_date,   _time(23, 59, 59)))
+
+        from employees.models import Employee as _Employee
+        employees = list(_Employee.objects.filter(is_active=True, is_executive=False).order_by('full_name'))
+
+        # Workday lookup: (emp_id, date) -> workday
+        wd_lookup = {}
+        for wd in Workday.objects.filter(
+            employee__is_active=True, employee__is_executive=False,
+            status=Workday.STATUS_COMPLETED,
+            start_time__gte=first_dt, start_time__lte=last_dt,
+        ).select_related('employee'):
+            local_start = timezone.localtime(wd.start_time)
+            wd_lookup[(wd.employee_id, local_start.date())] = wd
+
+        # Leaves lookup: (emp_id, date) -> [texts]
+        leave_type_labels = dict(EmployeeLeave.TYPE_CHOICES)
+        leaves_lookup = {}
+        for lv in EmployeeLeave.objects.filter(
+            employee__is_active=True, employee__is_executive=False,
+            start_date__lte=to_date, end_date__gte=from_date,
+        ):
+            d = lv.start_date
+            while d <= lv.end_date:
+                if from_date <= d <= to_date:
+                    txt = leave_type_labels.get(lv.leave_type, lv.leave_type)
+                    if lv.note:
+                        txt += f' ({lv.note})'
+                    leaves_lookup.setdefault((lv.employee_id, d), []).append(txt)
+                d += timedelta(days=1)
+
+        note_type_labels = dict(CalendarNote.TYPE_CHOICES)
+        notes_lookup = {}
+        for note in CalendarNote.objects.filter(date__gte=from_date, date__lte=to_date):
+            lbl = note_type_labels.get(note.note_type, note.note_type)
+            notes_lookup.setdefault(note.date, []).append(f'{lbl}: {note.text}')
+
+        all_dates = []
+        d = from_date
+        while d <= to_date:
+            all_dates.append(d)
+            d += timedelta(days=1)
+
+        rows = []
+        for emp_counter, emp in enumerate(employees, start=1):
+            for day_num, day in enumerate(all_dates, start=1):
+                wd = wd_lookup.get((emp.id, day))
+                if wd:
+                    local_start = timezone.localtime(wd.start_time)
+                    local_end   = timezone.localtime(wd.end_time) if wd.end_time else None
+                    ref_mins    = emp.hora_entrada.hour * 60 + emp.hora_entrada.minute
+                    start_mins  = local_start.hour * 60 + local_start.minute
+                    atraso      = max(0, start_mins - ref_mins)
+                    neto        = max(0, (wd.duration_minutes or 0) - 60)
+                    hora_ingreso    = local_start.strftime('%H:%M')
+                    hora_salida     = local_end.strftime('%H:%M') if local_end else '—'
+                    horas_trabajadas = f'{neto // 60:02d}:{neto % 60:02d}'
+                    atraso_minutos  = atraso
+                else:
+                    hora_ingreso = hora_salida = horas_trabajadas = ''
+                    atraso_minutos = None
+
+                rows.append({
+                    'emp_num':   emp_counter,
+                    'day_num':   day_num,
+                    'nombre':    emp.full_name,
+                    'cargo':     emp.cargo,
+                    'haber_basico': str(emp.haber_basico) if emp.haber_basico else None,
+                    'fecha':     day.strftime('%d-%m-%Y'),
+                    'dia':       _DAY_NAMES[day.weekday()],
+                    'hora_ingreso':    hora_ingreso,
+                    'hora_salida':     hora_salida,
+                    'horas_trabajadas': horas_trabajadas,
+                    'atraso_minutos':  atraso_minutos,
+                    'comentario_leaves': leaves_lookup.get((emp.id, day), []),
+                    'comentario_notes':  notes_lookup.get(day, []),
+                    'is_weekend':      day.weekday() >= 5,
+                    'is_first_of_employee': day_num == 1,
+                })
+
+        return Response({'rows': rows, 'total': len(rows), 'label': label})
+
+
+def _xls_sheet_name(nombre):
+    parts = nombre.strip().split()
+    inicial = (parts[0][0].upper() + '.') if parts else ''
+    apellido = parts[1] if len(parts) > 1 else ''
+    name = f'{inicial} {apellido}'.strip()[:31]
+    for ch in r'\/*?:[]':
+        name = name.replace(ch, '')
+    return name or 'Empleado'
+
+
+class ReporteExportView(APIView):
+    """Descarga el reporte de asistencia como .xlsx usando la plantilla corporativa."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            executive = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not executive.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        local_now = _local_now()
+        filter_mode = request.query_params.get('mode', 'month')
+
+        if filter_mode == 'range':
+            try:
+                from_date = _date.fromisoformat(request.query_params.get('from', ''))
+                to_date   = _date.fromisoformat(request.query_params.get('to', ''))
+                if to_date < from_date:
+                    to_date = from_date
+            except (ValueError, TypeError):
+                filter_mode = 'month'
+
+        if filter_mode == 'month':
+            try:
+                sel_year  = int(request.query_params.get('year',  local_now.year))
+                sel_month = int(request.query_params.get('month', local_now.month))
+                if not (1 <= sel_month <= 12):
+                    raise ValueError
+            except (ValueError, TypeError):
+                sel_year, sel_month = local_now.year, local_now.month
+            from_date = _date(sel_year, sel_month, 1)
+            to_date   = _date(sel_year, sel_month, _cal.monthrange(sel_year, sel_month)[1])
+            label = f'{_MONTH_NAMES[sel_month - 1]}-{sel_year}'
+        else:
+            label = f'{from_date.strftime("%d-%m-%Y")}__{to_date.strftime("%d-%m-%Y")}'
+
+        first_dt = timezone.make_aware(_datetime.combine(from_date, _time(0, 0, 0)))
+        last_dt  = timezone.make_aware(_datetime.combine(to_date,   _time(23, 59, 59)))
+
+        from employees.models import Employee as _EmpXls
+        xls_employees = list(_EmpXls.objects.filter(is_active=True, is_executive=False).order_by('full_name'))
+
+        # Workday lookup
+        xls_wd_lookup = {}
+        for wd in Workday.objects.filter(
+            employee__is_active=True, employee__is_executive=False,
+            status=Workday.STATUS_COMPLETED,
+            start_time__gte=first_dt, start_time__lte=last_dt,
+        ).select_related('employee'):
+            ls = timezone.localtime(wd.start_time)
+            xls_wd_lookup[(wd.employee_id, ls.date())] = wd
+
+        # Per-date lookups for comments
+        xls_leave_labels = dict(EmployeeLeave.TYPE_CHOICES)
+        xls_leaves_lookup = {}
+        emp_ids_xls = {e.id for e in xls_employees}
+        for lv in EmployeeLeave.objects.filter(
+            employee_id__in=emp_ids_xls,
+            start_date__lte=to_date, end_date__gte=from_date,
+        ):
+            d = lv.start_date
+            while d <= lv.end_date:
+                if from_date <= d <= to_date:
+                    txt = xls_leave_labels.get(lv.leave_type, lv.leave_type)
+                    if lv.note:
+                        txt += f' ({lv.note})'
+                    xls_leaves_lookup.setdefault((lv.employee_id, d), []).append(txt)
+                d += timedelta(days=1)
+
+        xls_note_labels = dict(CalendarNote.TYPE_CHOICES)
+        xls_notes_lookup = {}
+        for note in CalendarNote.objects.filter(date__gte=from_date, date__lte=to_date):
+            lbl = xls_note_labels.get(note.note_type, note.note_type)
+            xls_notes_lookup.setdefault(note.date, []).append(f'{lbl}: {note.text}')
+
+        xls_all_dates = []
+        d = from_date
+        while d <= to_date:
+            xls_all_dates.append(d)
+            d += timedelta(days=1)
+
+        # Agrupar por empleado con todos los días
+        groups = {}
+        order = []
+        for emp_counter, emp in enumerate(xls_employees, start=1):
+            groups[emp_counter] = {
+                'emp_num': emp_counter,
+                'nombre':  emp.full_name,
+                'cargo':   emp.cargo,
+                'haber_basico': float(emp.haber_basico) if emp.haber_basico else '',
+                'rows': [],
+            }
+            order.append(emp_counter)
+            for day in xls_all_dates:
+                wd = xls_wd_lookup.get((emp.id, day))
+                if wd:
+                    ls  = timezone.localtime(wd.start_time)
+                    le  = timezone.localtime(wd.end_time) if wd.end_time else None
+                    ref = emp.hora_entrada.hour * 60 + emp.hora_entrada.minute
+                    neto = max(0, (wd.duration_minutes or 0) - 60)
+                    atraso = max(0, ls.hour * 60 + ls.minute - ref)
+                    row_data = [
+                        day.strftime('%d-%m-%Y'), _DAY_NAMES[day.weekday()],
+                        ls.strftime('%H:%M'), le.strftime('%H:%M') if le else '—',
+                        '1:00', f'{neto // 60:02d}:{neto % 60:02d}', atraso,
+                    ]
+                else:
+                    row_data = [day.strftime('%d-%m-%Y'), _DAY_NAMES[day.weekday()], '', '', '', '', '']
+                groups[emp_counter]['rows'].append({
+                    'data': row_data, 'emp_id': emp.id, 'date': day,
+                })
+
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        # ── Coca-Cola palette ──────────────────────────────────
+        CC_RED      = 'CC0000'
+        CC_DARK_RED = '8B0000'
+        CC_WHITE    = 'FFFFFF'
+        CC_CREAM    = 'FFF5F5'
+        CC_ROW_A    = 'FFFFFF'
+        CC_ROW_B    = 'FDF0F0'
+        CC_WEEKEND  = 'FFE8E8'
+        CC_DIM      = 'AAAAAA'
+        CC_TEXT     = '1A1A1A'
+        CC_BORDER   = 'E0C0C0'
+        CC_LEAVE    = 'CC2222'
+        CC_NOTE     = '336699'
+
+        def _fill(c):
+            return PatternFill('solid', fgColor=c)
+
+        def _font(bold=False, color=CC_TEXT, size=10, italic=False):
+            return Font(name='Calibri', bold=bold, color=color, size=size, italic=italic)
+
+        def _border(color=CC_BORDER):
+            s = Side(style='thin', color=color)
+            return Border(left=s, right=s, top=s, bottom=s)
+
+        def _align(h='left', v='center', wrap=False):
+            return Alignment(horizontal=h, vertical=v, wrap_text=wrap)
+
+        COL_WIDTHS   = [13, 10, 14, 14, 11, 17, 14, 32]
+        COL_HEADERS  = ['Fecha', 'Día', 'Hora Ingreso', 'Hora Salida',
+                        'Refrigerio', 'Horas Trabajadas', 'Atrasos (min)', 'Comentario']
+        INFO_LABELS  = ['Item', 'Nombre', 'Cargo', 'Haber Básico']
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)  # remove default sheet
+
+        used_names = {}
+        for emp_num in order:
+            g = groups[emp_num]
+
+            name = _xls_sheet_name(g['nombre'])
+            if used_names.get(name):
+                used_names[name] += 1
+                name = (name + str(used_names[name]))[:31]
+            else:
+                used_names[name] = 1
+            ws = wb.create_sheet(title=name)
+
+            # ── Column widths ──────────────────────────────────
+            for ci, w in enumerate(COL_WIDTHS, start=1):
+                ws.column_dimensions[get_column_letter(ci)].width = w
+
+            # ── Employee header rows 1-4 ───────────────────────
+            info_vals = [g['emp_num'], g['nombre'], g['cargo'],
+                         f"Bs. {g['haber_basico']}" if g['haber_basico'] else '—']
+            for ri, (lbl, val) in enumerate(zip(INFO_LABELS, info_vals), start=1):
+                ca = ws.cell(row=ri, column=1, value=lbl)
+                ca.fill = _fill(CC_DARK_RED)
+                ca.font = _font(bold=True, color=CC_WHITE, size=9)
+                ca.alignment = _align('left')
+                ca.border = Border(bottom=Side(style='thin', color=CC_RED))
+
+                cb = ws.cell(row=ri, column=2, value=val)
+                cb.fill = _fill(CC_CREAM)
+                cb.font = _font(bold=(ri == 2), color=CC_TEXT, size=10)
+                cb.alignment = _align('left')
+                cb.border = Border(bottom=Side(style='thin', color='EEC0C0'))
+
+                for ci in range(3, 9):
+                    c = ws.cell(row=ri, column=ci)
+                    c.fill = _fill(CC_CREAM)
+                    c.border = Border(bottom=Side(style='thin', color='EEC0C0'))
+                ws.row_dimensions[ri].height = 18
+
+            # ── Row 5: thin separator ──────────────────────────
+            for ci in range(1, 9):
+                c = ws.cell(row=5, column=ci)
+                c.fill = _fill(CC_RED)
+            ws.row_dimensions[5].height = 4
+
+            # ── Row 6: column headers ──────────────────────────
+            for ci, lbl in enumerate(COL_HEADERS, start=1):
+                c = ws.cell(row=6, column=ci, value=lbl)
+                c.fill = _fill(CC_RED)
+                c.font = _font(bold=True, color=CC_WHITE, size=10)
+                c.alignment = _align('center')
+                c.border = Border(
+                    left=Side(style='thin', color='AA0000'),
+                    right=Side(style='thin', color='AA0000'),
+                    bottom=Side(style='medium', color=CC_DARK_RED),
+                )
+            ws.row_dimensions[6].height = 22
+
+            # ── Data rows from row 7 ───────────────────────────
+            for i, row_obj in enumerate(g['rows']):
+                r = 7 + i
+                has_wd   = bool(row_obj['data'][2])  # hora_ingreso not empty
+                is_wkend = row_obj['date'].weekday() >= 5
+                row_bg   = CC_WEEKEND if is_wkend else CC_ROW_A
+                txt_col  = CC_DIM if not has_wd else CC_TEXT
+
+                for ci, val in enumerate(row_obj['data'], start=1):
+                    cell = ws.cell(row=r, column=ci, value=val)
+                    cell.fill = _fill(row_bg)
+                    cell.font = _font(color=txt_col, size=9)
+                    cell.border = _border()
+                    cell.alignment = _align('left' if ci <= 2 else 'center')
+                ws.row_dimensions[r].height = 16
+
+                # Refrigerio: only if workday exists
+                ws.cell(row=r, column=5).value = '1:00' if has_wd else ''
+
+                # Comment col 8
+                leaves_c = xls_leaves_lookup.get((row_obj['emp_id'], row_obj['date']), [])
+                notes_c  = xls_notes_lookup.get(row_obj['date'], [])
+                comment  = ' · '.join(leaves_c + notes_c)
+                cc = ws.cell(row=r, column=8, value=comment)
+                cc.fill = _fill(row_bg)
+                cc.border = _border()
+                cc.alignment = _align('left', wrap=True)
+                if comment:
+                    cc.font = _font(
+                        color=CC_LEAVE if leaves_c else CC_NOTE,
+                        size=9, italic=True,
+                    )
+
+            # ── Freeze panes below headers ─────────────────────
+            ws.freeze_panes = 'A7'
+
+            # ── Thin red bottom border on last data row ────────
+            last_r = 7 + len(g['rows']) - 1
+            if last_r >= 7:
+                for ci in range(1, 9):
+                    ws.cell(row=last_r, column=ci).border = Border(
+                        left=Side(style='thin', color=CC_BORDER),
+                        right=Side(style='thin', color=CC_BORDER),
+                        top=Side(style='thin', color=CC_BORDER),
+                        bottom=Side(style='medium', color=CC_RED),
+                    )
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        filename = f'reporte-asistencia-{label}.xlsx'
+        response = HttpResponse(
+            buf.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response

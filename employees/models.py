@@ -1,3 +1,4 @@
+import datetime
 from django.db import models
 from django.contrib.auth.models import User
 
@@ -6,9 +7,16 @@ class Employee(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='employee')
     nextcloud_username = models.CharField(max_length=150, unique=True)
     full_name = models.CharField(max_length=255)
-    department = models.CharField(max_length=100, blank=True)
     is_active = models.BooleanField(default=True)
     is_executive = models.BooleanField(default=False)
+    cargo = models.CharField(max_length=150, blank=True, verbose_name='Cargo')
+    haber_basico = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, verbose_name='Haber básico',
+    )
+    hora_entrada = models.TimeField(
+        default=datetime.time(8, 0), verbose_name='Hora de entrada',
+        help_text='Hora de referencia para calcular atrasos. Default: 08:00',
+    )
     capture_interval_minutes = models.IntegerField(
         null=True,
         blank=True,

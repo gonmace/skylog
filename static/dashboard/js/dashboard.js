@@ -21,6 +21,7 @@
     document.cookie = `refresh=; path=/; SameSite=None; max-age=0${secure}`;
     localStorage.removeItem('access');
     localStorage.removeItem('refresh');
+    localStorage.removeItem('pin_unlocked_at');
   }
 
   function authHeaders() {
@@ -62,12 +63,81 @@
     window.location.href = '/login/';
   }
 
-  const ALL_VIEWS = ['view-loading', 'view-noaccess', 'view-employee', 'view-executive'];
+  const ALL_VIEWS = ['view-loading', 'view-pin', 'view-noaccess', 'view-employee', 'view-executive'];
 
   function showView(id) {
     ALL_VIEWS.forEach(v => {
       document.getElementById(v).classList.toggle('hidden', v !== id);
     });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  PIN lock
+  // ─────────────────────────────────────────────────────────────
+  const PIN_CODES = ['2231', '1458', '1209'];
+  let _pinBuffer = '';
+  let _pinCallback = null;
+
+  const PIN_TTL = 60 * 60 * 1000; // 1 hora
+
+  function initPin(onSuccess) {
+    const last = parseInt(localStorage.getItem('pin_unlocked_at') || '0', 10);
+    if (last && (Date.now() - last) < PIN_TTL) { onSuccess(); return; }
+
+    _pinCallback = onSuccess;
+    _pinBuffer = '';
+    _updateDots();
+    document.getElementById('pin-error').textContent = '';
+    showView('view-pin');
+
+    document.querySelectorAll('.pin-key[data-digit]').forEach(btn => {
+      btn.addEventListener('click', () => _pinPress(btn.dataset.digit));
+    });
+    document.getElementById('pin-del').addEventListener('click', _pinBackspace);
+    document.addEventListener('keydown', _pinKeydown);
+  }
+
+  function _pinKeydown(e) {
+    if (e.key >= '0' && e.key <= '9') _pinPress(e.key);
+    else if (e.key === 'Backspace') _pinBackspace();
+  }
+
+  function _pinPress(digit) {
+    if (_pinBuffer.length >= 4) return;
+    _pinBuffer += digit;
+    _updateDots();
+    if (_pinBuffer.length === 4) _checkPin();
+  }
+
+  function _pinBackspace() {
+    _pinBuffer = _pinBuffer.slice(0, -1);
+    _updateDots();
+    document.getElementById('pin-error').textContent = '';
+    document.querySelectorAll('.pin-dot').forEach(d => d.classList.remove('error'));
+  }
+
+  function _updateDots() {
+    for (let i = 0; i < 4; i++) {
+      const dot = document.getElementById('pd' + i);
+      dot.classList.toggle('filled', i < _pinBuffer.length);
+    }
+  }
+
+  function _checkPin() {
+    if (PIN_CODES.includes(_pinBuffer)) {
+      localStorage.setItem('pin_unlocked_at', Date.now().toString());
+      document.removeEventListener('keydown', _pinKeydown);
+      _pinCallback();
+    } else {
+      document.querySelectorAll('.pin-dot').forEach(d => { d.classList.remove('filled'); d.classList.add('error'); });
+      document.getElementById('pin-error').textContent = 'Clave incorrecta, intenta de nuevo';
+      setTimeout(() => {
+        document.querySelectorAll('.pin-dot').forEach(d => d.classList.remove('error'));
+        document.getElementById('pin-error').textContent = '';
+        _pinBuffer = '';
+        _updateDots();
+      }, 900);
+    }
   }
 
   async function init() {
@@ -104,8 +174,7 @@
       }
 
       if (profile.is_executive) {
-        showView('view-executive');
-        initExecutive(profile);
+        initPin(() => { showView('view-executive'); initExecutive(profile); });
         return;
       }
 

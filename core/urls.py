@@ -29,6 +29,7 @@ urlpatterns = [
     path('api/', include('workdays.api_urls')),
     path('api/', include('screenshots.api_urls')),
     path('login/', include('authentication.urls')),
+    path('reporte/', include('workdays.reporte_urls')),
     path('dashboard/', include('workdays.urls')),
     path('mobile/', never_cache(TemplateView.as_view(template_name='mobile/dashboard.html')), name='mobile_dashboard'),
     path('', include('home.urls')),

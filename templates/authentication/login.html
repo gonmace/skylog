@@ -6,7 +6,8 @@
 {% block content %}
 <script>
   if (localStorage.getItem('access')) {
-    window.location.href = '/dashboard/';
+    var next = new URLSearchParams(window.location.search).get('next');
+    window.location.href = next || '/dashboard/';
   }
 </script>
 

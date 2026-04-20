@@ -27,7 +27,7 @@ class ScreenshotInline(admin.TabularInline):
 @admin.register(Workday, site=admin_site)
 class WorkdayAdmin(admin.ModelAdmin):
     list_display = ['employee', 'start_time', 'end_time', 'duration_minutes', 'status_badge']
-    list_filter = ['status', 'start_time', 'employee__department']
+    list_filter = ['status', 'start_time', 'employee__cargo']
     search_fields = ['employee__full_name', 'employee__nextcloud_username']
     ordering = ['-start_time']
     inlines = [DailyReportInline, ScreenshotInline]
@@ -65,7 +65,7 @@ class WorkdayAdmin(admin.ModelAdmin):
             writer.writerow([
                 w.employee.full_name,
                 w.employee.nextcloud_username,
-                w.employee.department,
+                w.employee.cargo,
                 w.start_time.strftime('%Y-%m-%d %H:%M'),
                 w.end_time.strftime('%Y-%m-%d %H:%M') if w.end_time else '',
                 w.duration_minutes or '',

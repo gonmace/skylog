@@ -5,6 +5,7 @@ from .views import (
     EmployeeSkylogToggleView, SendMessageView, PendingMessagesView,
     AcknowledgeMessageView, WorkdayMonthlyView, EmployeeMonthlyView,
     CalendarNotesView, CalendarNoteDetailView, EmployeeLeavesView, EmployeeLeaveDetailView,
+    ReporteAPIView, ReporteExportView,
 )
 
 urlpatterns = [
@@ -25,4 +26,6 @@ urlpatterns = [
     path('calendar/notes/<int:note_id>/', CalendarNoteDetailView.as_view()),
     path('employees/<int:employee_id>/leaves/', EmployeeLeavesView.as_view()),
     path('employees/<int:employee_id>/leaves/<int:leave_id>/', EmployeeLeaveDetailView.as_view()),
+    path('reporte/', ReporteAPIView.as_view()),
+    path('reporte/export/', ReporteExportView.as_view()),
 ]
