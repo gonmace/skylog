@@ -1829,7 +1829,7 @@ class CertificadoExportView(APIView):
 
         employees = list(Employee.objects
                          .filter(is_active=True, is_executive=False)
-                         .order_by('full_name'))
+                         .order_by(models.F('item_number').asc(nulls_last=True), 'full_name'))
 
         wd_lookup = {}
         for wd in Workday.objects.filter(

@@ -29,6 +29,10 @@ class Employee(models.Model):
         verbose_name='Ciudad (catering)',
         help_text='Ciudad donde recibe catering en el certificado de pago. Si no aplica, dejar en "Sin catering".',
     )
+    item_number = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name='N° Ítem',
+        help_text='Orden del empleado en el Certificado de Pago (1, 2, 3…). Empleados sin número aparecen al final ordenados por nombre.',
+    )
     hora_entrada = models.TimeField(
         default=datetime.time(8, 0), verbose_name='Hora de entrada',
         help_text='Hora de referencia para calcular atrasos. Default: 08:00',

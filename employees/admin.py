@@ -11,7 +11,9 @@ log = logging.getLogger(__name__)
 
 @admin.register(Employee, site=admin_site)
 class EmployeeAdmin(admin.ModelAdmin):
-    list_display = ['full_name', 'nextcloud_username', 'cargo', 'haber_basico', 'ciudad', 'is_active', 'is_executive', 'solo_movil', 'agent_version_badge', 'created_at']
+    list_display = ['item_number', 'full_name', 'nextcloud_username', 'cargo', 'haber_basico', 'ciudad', 'is_active', 'is_executive', 'solo_movil', 'agent_version_badge', 'created_at']
+    list_display_links = ['full_name']
+    list_editable = ['item_number']
     list_filter = ['cargo', 'ciudad', 'is_active', 'is_executive', 'solo_movil']
     search_fields = ['full_name', 'nextcloud_username', 'user__email']
     ordering = ['full_name']
@@ -19,7 +21,7 @@ class EmployeeAdmin(admin.ModelAdmin):
     actions = ['request_capture']
 
     fieldsets = [
-        ('Información', {'fields': ['user', 'nextcloud_username', 'full_name', 'cargo', 'haber_basico', 'ciudad', 'hora_entrada', 'is_active', 'is_executive', 'solo_movil', 'created_at']}),
+        ('Información', {'fields': ['user', 'nextcloud_username', 'full_name', 'item_number', 'cargo', 'haber_basico', 'ciudad', 'hora_entrada', 'is_active', 'is_executive', 'solo_movil', 'created_at']}),
         ('Agente', {'fields': ['agent_version', 'agent_last_seen', 'capture_interval_minutes', 'screenshots_enabled'], 'description': 'Intervalo vacío = usa el global.'}),
         ('Token para agente Windows', {'fields': ['agent_token'], 'classes': ['collapse']}),
     ]
