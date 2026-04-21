@@ -4,6 +4,17 @@ from django.contrib.auth.models import User
 
 
 class Employee(models.Model):
+    CIUDAD_NONE = 'NONE'
+    CIUDAD_LPZ  = 'LPZ'
+    CIUDAD_CBA  = 'CBA'
+    CIUDAD_SCZ  = 'SCZ'
+    CIUDAD_CHOICES = [
+        (CIUDAD_NONE, 'Sin catering'),
+        (CIUDAD_LPZ,  'La Paz'),
+        (CIUDAD_CBA,  'Cochabamba'),
+        (CIUDAD_SCZ,  'Santa Cruz'),
+    ]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='employee')
     nextcloud_username = models.CharField(max_length=150, unique=True)
     full_name = models.CharField(max_length=255)
@@ -12,6 +23,11 @@ class Employee(models.Model):
     cargo = models.CharField(max_length=150, blank=True, verbose_name='Cargo')
     haber_basico = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True, verbose_name='Haber básico',
+    )
+    ciudad = models.CharField(
+        max_length=4, choices=CIUDAD_CHOICES, default=CIUDAD_NONE,
+        verbose_name='Ciudad (catering)',
+        help_text='Ciudad donde recibe catering en el certificado de pago. Si no aplica, dejar en "Sin catering".',
     )
     hora_entrada = models.TimeField(
         default=datetime.time(8, 0), verbose_name='Hora de entrada',

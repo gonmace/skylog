@@ -1248,3 +1248,637 @@ class ReporteExportView(APIView):
         )
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  CERTIFICADO DE PAGO — replica template.xlsx (PL + hojas 1..N por empleado)
+# ════════════════════════════════════════════════════════════════════════════
+
+CERT_RED           = 'FFFF0000'
+CERT_WHITE         = 'FFFFFFFF'
+CERT_BLACK         = 'FF000000'
+CERT_EXCHANGE_RATE = 0.461310893326238
+CERT_WORKDAYS      = 22
+CERT_CATERING_FEE  = 1.16
+CERT_CLIENT        = 'EMBOL S.A. / GERENCIA DE OPERACIONES E INNOVACION TECNOLOGICA'
+CERT_SERVICE       = 'SERVICIO DE SUPERVISION DE PROYECTOS'
+CERT_CURRENCY      = 'Bolivianos'
+CERT_ACCT_FMT      = '_(* #,##0.00_);_(* \\(#,##0.00\\);_(* "-"??_);_(@_)'
+
+# (item, descripción, día_ida, día_regreso, días, P.U. (formula o número), cantidad)
+CERT_TRAVEL_ROWS = [
+    (1, 'Scz-Lpz-Scz',               None, None, None, '=852*2',  None),
+    (2, 'Scz-Cba-Scz',               22,   23,   None, '=1021*2', 1),
+    (3, 'Scz-Tja-Scz',               None, None, None, '=851*2',  None),
+    (4, 'Lpz-Cba-Lpz',               None, None, None, '=443*2',  None),
+    (5, 'Alojamiento y Alimentación', 22,   23,   1,    350,       None),
+]
+
+# (item, descripción, cantidad, costo_unitario)
+CERT_EQUIPMENT_ROWS = [
+    (1, 'Dotación de Equipos de Computación i5/i7 de ÚLTIMA GENERACIÓN con Licencia Software Basico - Contrato anual.', 11, 785),
+    (2, 'Dotación de Equipos de Computación i5/i7 de ÚLTIMA GENERACIÓN con Licencia Software Especializado de diseño - Contrato anual.', 0, 4857.5),
+]
+
+
+def _cert_side(color=CERT_BLACK):
+    from openpyxl.styles import Side
+    return Side(style='thin', color=color)
+
+
+def _cert_border_all(color=CERT_BLACK):
+    from openpyxl.styles import Border
+    s = _cert_side(color)
+    return Border(left=s, right=s, top=s, bottom=s)
+
+
+def _cert_header_style(cell, size=11, h='center', v='center', wrap=True):
+    from openpyxl.styles import Font, PatternFill, Alignment
+    cell.fill = PatternFill('solid', fgColor=CERT_RED)
+    cell.font = Font(name='Calibri', size=size, bold=True, color=CERT_WHITE)
+    cell.alignment = Alignment(horizontal=h, vertical=v, wrap_text=wrap)
+    cell.border = _cert_border_all()
+
+
+def _cert_body_style(cell, h='center', v='center', bold=False, num_fmt=None, wrap=False):
+    from openpyxl.styles import Font, Alignment
+    cell.font = Font(name='Calibri', size=11, bold=bold, color=CERT_BLACK)
+    cell.alignment = Alignment(horizontal=h, vertical=v, wrap_text=wrap)
+    cell.border = _cert_border_all()
+    if num_fmt:
+        cell.number_format = num_fmt
+
+
+def _cert_merge_header(ws, range_str, text, size=11, h='center', v='center', wrap=True):
+    """Merge a range, set text in top-left, apply red header style to all cells inside."""
+    ws.merge_cells(range_str)
+    from openpyxl.utils.cell import range_boundaries
+    min_c, min_r, max_c, max_r = range_boundaries(range_str)
+    top_left = ws.cell(row=min_r, column=min_c, value=text)
+    _cert_header_style(top_left, size=size, h=h, v=v, wrap=wrap)
+    # Apply border to every cell in range (merged cells need individual borders for display)
+    for r in range(min_r, max_r + 1):
+        for c in range(min_c, max_c + 1):
+            cell = ws.cell(row=r, column=c)
+            if cell is not top_left:
+                cell.border = _cert_border_all()
+
+
+def _cert_merge_body(ws, range_str, value=None, h='center', v='center', bold=False, num_fmt=None, wrap=False):
+    ws.merge_cells(range_str)
+    from openpyxl.utils.cell import range_boundaries
+    min_c, min_r, max_c, max_r = range_boundaries(range_str)
+    top_left = ws.cell(row=min_r, column=min_c, value=value)
+    _cert_body_style(top_left, h=h, v=v, bold=bold, num_fmt=num_fmt, wrap=wrap)
+    for r in range(min_r, max_r + 1):
+        for c in range(min_c, max_c + 1):
+            cell = ws.cell(row=r, column=c)
+            if cell is not top_left:
+                cell.border = _cert_border_all()
+
+
+def _cert_col_letter(idx):
+    from openpyxl.utils import get_column_letter
+    return get_column_letter(idx)
+
+
+def _build_cert_employee_sheet(wb, item, emp, year, month, wd_lookup, leaves_lookup, notes_lookup):
+    """Replicates template sheet '1' for one employee."""
+    from openpyxl.styles import Font, Alignment
+
+    ws = wb.create_sheet(title=str(item))
+
+    # Column widths (from template)
+    widths = {'A': 15.89, 'B': 14.33, 'C': 14.11, 'D': 12.33, 'E': 13.00,
+              'F': 14.89, 'G': 17.44, 'H': 15.33}
+    for letter, w in widths.items():
+        ws.column_dimensions[letter].width = w
+
+    ws.row_dimensions[3].height = 4.8
+    ws.row_dimensions[8].height = 4.8
+
+    # Title A2:H2
+    _cert_merge_header(ws, 'A2:H2', 'PLANILLA CONTROL DE ASISTENCIA', size=11, h='center')
+
+    # Info rows 4-7 (label en col A con estilo rojo, valor en col B)
+    info = [
+        ('ITEM', item, None),
+        ('NOMBRE', emp.full_name, None),
+        ('CARGO', emp.cargo or '', None),
+        ('HABER BASICO', float(emp.haber_basico) if emp.haber_basico else 0, CERT_ACCT_FMT),
+    ]
+    for i, (lbl, val, nfmt) in enumerate(info):
+        r = 4 + i
+        ca = ws.cell(row=r, column=1, value=lbl)
+        _cert_header_style(ca, size=11, h='left')
+        cb = ws.cell(row=r, column=2, value=val)
+        _cert_body_style(cb, h='left', num_fmt=nfmt)
+
+    # Column headers row 9
+    col_headers = ['FECHA', 'DIA', 'HORA INGRESO', 'HORA SALIDA',
+                   'REFRIGERIO', 'HORAS TRABAJO', 'ATRASOS MINUTOS', 'OBSERVACIONES']
+    for i, h in enumerate(col_headers, start=1):
+        c = ws.cell(row=9, column=i, value=h)
+        _cert_header_style(c, size=11, h='center')
+
+    # Data rows
+    days_in_month = _cal.monthrange(year, month)[1]
+    first_data = 10
+    last_data = first_data + days_in_month - 1
+
+    for d in range(1, days_in_month + 1):
+        r = first_data + d - 1
+        day_date = _date(year, month, d)
+        wd = wd_lookup.get((emp.id, day_date))
+
+        ca = ws.cell(row=r, column=1, value=day_date)
+        _cert_body_style(ca, h='center', num_fmt='yyyy-mm-dd')
+
+        cb = ws.cell(row=r, column=2, value=f'=+A{r}')
+        _cert_body_style(cb, h='center', num_fmt='dddd')
+
+        if wd:
+            ls = timezone.localtime(wd.start_time)
+            le = timezone.localtime(wd.end_time) if wd.end_time else None
+            cc = ws.cell(row=r, column=3, value=_time(ls.hour, ls.minute))
+            cd = ws.cell(row=r, column=4, value=_time(le.hour, le.minute) if le else None)
+            ce = ws.cell(row=r, column=5, value=1)
+        else:
+            cc = ws.cell(row=r, column=3)
+            cd = ws.cell(row=r, column=4)
+            ce = ws.cell(row=r, column=5)
+        _cert_body_style(cc, h='center', num_fmt='hh:mm')
+        _cert_body_style(cd, h='center', num_fmt='hh:mm')
+        _cert_body_style(ce, h='center')
+
+        cf = ws.cell(row=r, column=6, value=f'=+(D{r}-C{r})*24-E{r}')
+        _cert_body_style(cf, h='center', num_fmt='0.00')
+
+        cg = ws.cell(row=r, column=7,
+                     value=f'=+IF(C{r}>0.333333333333333,+(C{r}-0.333333333333333)*24*60,"0")')
+        _cert_body_style(cg, h='center', num_fmt='0')
+
+        leaves = leaves_lookup.get((emp.id, day_date), [])
+        notes  = notes_lookup.get(day_date, [])
+        obs = ' · '.join(leaves + notes)
+        ch = ws.cell(row=r, column=8, value=obs)
+        _cert_body_style(ch, h='left', wrap=True)
+
+    # Totals rows
+    trows = [
+        ('TOTAL DIAS TRABAJADOS',  f'=+COUNT(C{first_data}:C{last_data})', '0'),
+        ('TOTAL HORAS TRABAJADAS', f'=SUM(F{first_data}:F{last_data})',     '0.00'),
+        ('ATRASOS',                f'=SUM(G{first_data}:G{last_data})',     '0'),
+    ]
+    for i, (label, formula, nfmt) in enumerate(trows):
+        r = last_data + 1 + i
+        _cert_merge_header(ws, f'A{r}:B{r}', label, size=11, h='right')
+        _cert_merge_body(ws, f'C{r}:G{r}', value=formula, h='center', num_fmt=nfmt, bold=True)
+
+
+def _build_cert_pl_sheet(wb, employees, year, month, wd_lookup):
+    """Replicates template sheet 'PL1' (renamed to 'PL') as consolidation."""
+    from openpyxl.styles import Font, Alignment, PatternFill
+
+    ws = wb.create_sheet(title='PL', index=0)
+
+    N = len(employees)
+    days_in_month = _cal.monthrange(year, month)[1]
+
+    # Widths (from template PL1)
+    widths_explicit = {'A': 7.66, 'B': 42.78, 'C': 29.44, 'D': 13.22, 'E': 13.44, 'F': 5.78, 'AL': 15.89}
+    for letter, w in widths_explicit.items():
+        ws.column_dimensions[letter].width = w
+    for col_idx in range(7, 37):  # G..AJ
+        ws.column_dimensions[_cert_col_letter(col_idx)].width = 13.0
+
+    # Row heights (selected)
+    heights = {
+        1: 23.4, 2: 15.0, 3: 18.0, 4: 18.0, 5: 18.0, 6: 18.0, 8: 23.4, 10: 31.2, 11: 5.4,
+    }
+    for r, h in heights.items():
+        ws.row_dimensions[r].height = h
+
+    # ── Section 1: Header (rows 1-10) ────────────────────────────
+    _cert_merge_header(ws, 'D1:AK2', 'CERTIFICADO DE PAGO', size=18, h='center', v='center')
+
+    ws.merge_cells('A1:C8')  # left margin
+
+    # Fecha / Certificado number top-right
+    ws['AL1'] = 'Fecha:'
+    _cert_body_style(ws['AL1'], h='left', v='top')
+    ws['AL1'].font = Font(name='Calibri', size=14, bold=False, color=CERT_BLACK)
+    ws['AM1'] = _local_now().date()
+    _cert_body_style(ws['AM1'], h='left', v='top', num_fmt='yyyy-mm-dd')
+
+    _cert_merge_body(ws, 'AL2:AM7', value=1, h='center', v='center', bold=True)
+    _cert_merge_header(ws, 'AL8:AM8', 'CERTIFICADO', size=11, h='center')
+
+    # Cliente
+    ws['D3'] = 'CLIENTE:'
+    _cert_body_style(ws['D3'], h='left', v='top', bold=True)
+    _cert_merge_body(ws, 'E3:V4', value=CERT_CLIENT, h='left', v='center', wrap=True)
+
+    # Periodo
+    ws['W3'] = 'PERIODO:'
+    _cert_body_style(ws['W3'], h='left', v='center', bold=True)
+    _cert_merge_body(ws, 'Y3:AK4', value=_date(year, month, 1), h='center', v='center', num_fmt='mmmm yyyy')
+
+    # Servicio
+    ws['D5'] = 'SERVICIO:'
+    _cert_body_style(ws['D5'], h='left', v='top', bold=True)
+    _cert_merge_body(ws, 'E5:V6', value=CERT_SERVICE, h='left', v='center', wrap=True)
+
+    # Días laborables
+    ws['W5'] = 'DIAS LABORABLES:'
+    _cert_body_style(ws['W5'], h='left', v='center', bold=True)
+    _cert_merge_body(ws, 'AB5:AK6', value=CERT_WORKDAYS, h='left', v='center', bold=True)
+    ws['AB5'].font = Font(name='Calibri', size=18, bold=True, color=CERT_BLACK)
+
+    # Orden de compra
+    ws['D7'] = 'ORDEN DE COMPRA:'
+    _cert_body_style(ws['D7'], h='left', v='center', bold=True)
+    _cert_merge_body(ws, 'F7:V8', value='', h='left', v='center')
+
+    # Moneda
+    ws['W7'] = 'MONEDA:'
+    _cert_body_style(ws['W7'], h='left', v='center', bold=True)
+    _cert_merge_body(ws, 'Y7:AK8', value=CERT_CURRENCY, h='left', v='center')
+
+    # Section title
+    _cert_merge_header(ws, 'A10:AM10', 'PLANILLA DE PERSONAL', size=24, h='center')
+
+    # ── Section 2: Planilla (rows 12-..) ─────────────────────────
+    pl_header_r = 12
+    pl_days_r   = 13
+    pl_first    = 14
+    pl_last     = 13 + N
+    pl_subtotal = pl_last + 1
+
+    # Header row 12 (merged with row 13 for some cols)
+    _cert_merge_header(ws, f'A{pl_header_r}:A{pl_days_r}', 'ITEM', size=11, h='center')
+    _cert_merge_header(ws, f'B{pl_header_r}:B{pl_days_r}', 'NOMBRE', size=11, h='center')
+    _cert_merge_header(ws, f'C{pl_header_r}:C{pl_days_r}', 'CARGO', size=11, h='center')
+    _cert_merge_header(ws, f'D{pl_header_r}:D{pl_days_r}', 'FECHA DE INICIO', size=11, h='center')
+    _cert_merge_header(ws, f'E{pl_header_r}:E{pl_days_r}', 'HABER BASICO', size=11, h='center')
+    _cert_merge_header(ws, f'F{pl_header_r}:AJ{pl_header_r}', 'DIAS', size=11, h='center')
+    _cert_merge_header(ws, f'AK{pl_header_r}:AK{pl_days_r}', 'TOTAL DIAS', size=11, h='center')
+    _cert_merge_header(ws, f'AL{pl_header_r}:AL{pl_days_r}', 'HABER GANADO', size=11, h='center')
+    _cert_merge_header(ws, f'AM{pl_header_r}:AM{pl_days_r}', 'FACTURADO', size=11, h='center')
+
+    # Day numbers row 13
+    for d in range(1, 32):
+        col = 5 + d  # F=6 → day 1
+        cell = ws.cell(row=pl_days_r, column=col)
+        if d <= days_in_month:
+            cell.value = d
+        _cert_header_style(cell, size=11, h='center')
+
+    # Employee rows
+    month_start = _date(year, month, 1)
+    for idx, emp in enumerate(employees, start=1):
+        r = 13 + idx
+        ws.cell(row=r, column=1, value=idx)
+        _cert_body_style(ws.cell(row=r, column=1), h='center')
+        ws.cell(row=r, column=2, value=emp.full_name)
+        _cert_body_style(ws.cell(row=r, column=2), h='left')
+        ws.cell(row=r, column=3, value=emp.cargo or '')
+        _cert_body_style(ws.cell(row=r, column=3), h='left')
+        ws.cell(row=r, column=4, value=month_start)
+        _cert_body_style(ws.cell(row=r, column=4), h='center', num_fmt='yyyy-mm-dd')
+        ws.cell(row=r, column=5, value=float(emp.haber_basico) if emp.haber_basico else 0)
+        _cert_body_style(ws.cell(row=r, column=5), h='center', num_fmt=CERT_ACCT_FMT)
+
+        # Days F..AJ (31 columns; use formula linking to employee sheet)
+        for d in range(1, 32):
+            col = 5 + d
+            cell = ws.cell(row=r, column=col)
+            if d <= days_in_month:
+                emp_sheet_row = 9 + d  # employee sheet day rows: 10..10+days-1
+                cell.value = f'=+IF(\'{idx}\'!F{emp_sheet_row}>1,"SI","NO")'
+            _cert_body_style(cell, h='center')
+
+        # AK: COUNTIF(F:AJ, "SI")
+        ws.cell(row=r, column=37, value=f'=+COUNTIF(F{r}:AJ{r},"SI")')
+        _cert_body_style(ws.cell(row=r, column=37), h='center')
+        # AL: AK/$AB$5*E
+        ws.cell(row=r, column=38, value=f'=+AK{r}/$AB$5*E{r}')
+        _cert_body_style(ws.cell(row=r, column=38), h='center', num_fmt=CERT_ACCT_FMT)
+        # AM: AL/exchange_rate
+        ws.cell(row=r, column=39, value=f'=+AL{r}/{CERT_EXCHANGE_RATE}')
+        _cert_body_style(ws.cell(row=r, column=39), h='center', num_fmt=CERT_ACCT_FMT)
+
+        ws.row_dimensions[r].height = 19.95
+
+    # Subtotal AM
+    ws.cell(row=pl_subtotal, column=39, value=f'=SUM(AM14:AM{pl_last})' if N > 0 else 0)
+    _cert_body_style(ws.cell(row=pl_subtotal, column=39), h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+    ws.row_dimensions[pl_subtotal].height = 22.2
+
+    pl_subtotal_ref = f'AM{pl_subtotal}'
+
+    # shift offset for downstream sections (template base: 26)
+    shift = pl_subtotal - 26
+
+    # ── Section 3: Pasajes y Viáticos + Equipos (rows 28..37) ─────
+    travel_title_r    = 28 + shift
+    travel_detail_r   = 30 + shift
+    travel_first_r    = 32 + shift
+    travel_last_r     = 36 + shift
+    travel_subtotal_r = 37 + shift
+
+    ws.row_dimensions[travel_title_r].height = 31.2
+
+    # Titles
+    _cert_merge_header(ws, f'A{travel_title_r}:S{travel_title_r}', 'PASAJES Y VIATICOS', size=24, h='center')
+    _cert_merge_header(ws, f'U{travel_title_r}:AM{travel_title_r}', 'ALQUILER EQUIPOS DE COMPUTACION', size=24, h='center')
+
+    # Pasajes detail header (rows 30-31 merged)
+    _cert_merge_header(ws, f'A{travel_detail_r}:A{travel_detail_r+1}', 'ITEM')
+    _cert_merge_header(ws, f'B{travel_detail_r}:B{travel_detail_r+1}', 'NOMBRE')
+    _cert_merge_header(ws, f'C{travel_detail_r}:C{travel_detail_r+1}', 'DESCRIPCION')
+    _cert_merge_header(ws, f'D{travel_detail_r}:D{travel_detail_r+1}', 'FECHA IDA')
+    _cert_merge_header(ws, f'E{travel_detail_r}:E{travel_detail_r+1}', 'FECHA REGRESO')
+    _cert_merge_header(ws, f'F{travel_detail_r}:G{travel_detail_r+1}', 'DIAS')
+    _cert_merge_header(ws, f'H{travel_detail_r}:J{travel_detail_r+1}', 'P.U.\n(Variable)')
+    _cert_merge_header(ws, f'K{travel_detail_r}:M{travel_detail_r+1}', 'CANTIDAD')
+    _cert_merge_header(ws, f'N{travel_detail_r}:O{travel_detail_r+1}', 'COSTO TOTAL')
+    _cert_merge_header(ws, f'P{travel_detail_r}:S{travel_detail_r+1}', 'FACTURADO')
+
+    # Equipos detail header
+    _cert_merge_header(ws, f'U{travel_detail_r}:V{travel_detail_r+1}', 'ITEM')
+    _cert_merge_header(ws, f'W{travel_detail_r}:AI{travel_detail_r+1}', 'DESCRIPCION')
+    _cert_merge_header(ws, f'AJ{travel_detail_r}:AK{travel_detail_r+1}', 'CANTIDAD')
+    _cert_merge_header(ws, f'AL{travel_detail_r}:AL{travel_detail_r+1}', 'COSTO TOTAL')
+    _cert_merge_header(ws, f'AM{travel_detail_r}:AM{travel_detail_r+1}', 'FACTURADO')
+
+    # Travel rows
+    for i, (item, desc, dia_ida, dia_reg, dias, pu, qty) in enumerate(CERT_TRAVEL_ROWS):
+        r = travel_first_r + i
+        ws.cell(row=r, column=1, value=item)
+        _cert_body_style(ws.cell(row=r, column=1), h='center')
+        _cert_body_style(ws.cell(row=r, column=2), h='left')
+        ws.cell(row=r, column=3, value=desc)
+        _cert_body_style(ws.cell(row=r, column=3), h='left', wrap=True)
+        # Fechas ida/regreso
+        if dia_ida:
+            ida_day = min(dia_ida, days_in_month)
+            ws.cell(row=r, column=4, value=_date(year, month, ida_day))
+            _cert_body_style(ws.cell(row=r, column=4), h='center', num_fmt='yyyy-mm-dd')
+        else:
+            _cert_body_style(ws.cell(row=r, column=4), h='center')
+        if dia_reg:
+            reg_day = min(dia_reg, days_in_month)
+            ws.cell(row=r, column=5, value=_date(year, month, reg_day))
+            _cert_body_style(ws.cell(row=r, column=5), h='center', num_fmt='yyyy-mm-dd')
+        else:
+            _cert_body_style(ws.cell(row=r, column=5), h='center')
+        # Días F:G merged
+        _cert_merge_body(ws, f'F{r}:G{r}', value=dias, h='center')
+        # P.U. H:J merged
+        _cert_merge_body(ws, f'H{r}:J{r}', value=pu, h='center', num_fmt=CERT_ACCT_FMT)
+        # Cantidad K:M
+        _cert_merge_body(ws, f'K{r}:M{r}', value=qty, h='center')
+        # Costo total N:O
+        if qty is not None:
+            costo = f'=+K{r}*H{r}' if dias is None else f'=+F{r}*H{r}'
+        elif dias is not None:
+            costo = f'=+F{r}*H{r}'
+        else:
+            costo = f'=+K{r}*H{r}'
+        _cert_merge_body(ws, f'N{r}:O{r}', value=costo, h='center', num_fmt=CERT_ACCT_FMT)
+        # Facturado P:S
+        _cert_merge_body(ws, f'P{r}:S{r}', value=f'=+N{r}*1.25', h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+
+    # Travel subtotal
+    _cert_merge_body(ws, f'P{travel_subtotal_r}:S{travel_subtotal_r}',
+                     value=f'=SUM(P{travel_first_r}:S{travel_last_r})',
+                     h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+
+    # Equipment rows (only 2; use first two travel rows worth of space)
+    for i, (item, desc, qty, cu) in enumerate(CERT_EQUIPMENT_ROWS):
+        r = travel_first_r + i
+        _cert_merge_body(ws, f'U{r}:V{r}', value=item, h='center')
+        _cert_merge_body(ws, f'W{r}:AI{r}', value=desc, h='left', wrap=True)
+        _cert_merge_body(ws, f'AJ{r}:AK{r}', value=qty, h='center')
+        ws.cell(row=r, column=38, value=cu)
+        _cert_body_style(ws.cell(row=r, column=38), h='center', num_fmt=CERT_ACCT_FMT)
+        ws.cell(row=r, column=39, value=f'=+AL{r}*AJ{r}')
+        _cert_body_style(ws.cell(row=r, column=39), h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+
+    # Equipment subtotal (at travel_first_r + len(CERT_EQUIPMENT_ROWS))
+    eq_subtotal_r = travel_first_r + len(CERT_EQUIPMENT_ROWS)
+    ws.cell(row=eq_subtotal_r, column=39,
+            value=f'=SUM(AM{travel_first_r}:AM{travel_first_r + len(CERT_EQUIPMENT_ROWS) - 1})')
+    _cert_body_style(ws.cell(row=eq_subtotal_r, column=39),
+                     h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+
+    pl_travel_ref   = f'P{travel_subtotal_r}'
+    pl_equip_ref    = f'AM{eq_subtotal_r}'
+
+    # ── Catering sections (LPZ, CBA, SCZ) ────────────────────────
+    def _build_catering(section_title, city_code, title_row):
+        ws.row_dimensions[title_row].height = 31.2
+        _cert_merge_header(ws, f'A{title_row}:AK{title_row}', section_title, size=24, h='center')
+        # Fee cont cell
+        ws.cell(row=title_row, column=38, value='Fee Cont')
+        _cert_body_style(ws.cell(row=title_row, column=38), h='center', bold=True)
+        fee_cell = ws.cell(row=title_row, column=39, value=CERT_CATERING_FEE)
+        _cert_body_style(fee_cell, h='center', bold=True, num_fmt='0.00')
+        fee_ref = f'$AM${title_row}'
+
+        detail_r = title_row + 2
+        _cert_merge_header(ws, f'A{detail_r}:A{detail_r+1}', 'ITEM')
+        _cert_merge_header(ws, f'B{detail_r}:B{detail_r+1}', 'NOMBRE')
+        _cert_merge_header(ws, f'C{detail_r}:C{detail_r+1}', 'CARGO')
+        _cert_merge_header(ws, f'D{detail_r}:D{detail_r+1}', 'FECHA DE INICIO')
+        _cert_merge_header(ws, f'E{detail_r}:E{detail_r+1}', 'P.U. CATERING')
+        _cert_merge_header(ws, f'F{detail_r}:AJ{detail_r}', 'DIAS')
+        _cert_merge_header(ws, f'AK{detail_r}:AK{detail_r+1}', 'TOTAL DIAS')
+        _cert_merge_header(ws, f'AL{detail_r}:AL{detail_r+1}', 'COSTO TOTAL')
+        _cert_merge_header(ws, f'AM{detail_r}:AM{detail_r+1}', 'FACTURADO')
+
+        # Day numbers row
+        days_r = detail_r + 1
+        for d in range(1, 32):
+            col = 5 + d
+            cell = ws.cell(row=days_r, column=col)
+            if d <= days_in_month:
+                cell.value = d
+            _cert_header_style(cell, size=11, h='center')
+
+        # Employee rows for this city
+        city_employees = [(i + 1, e) for i, e in enumerate(employees) if e.ciudad == city_code]
+        first_emp_r = days_r + 1
+        last_emp_r  = first_emp_r + len(city_employees) - 1 if city_employees else first_emp_r
+
+        for i, (orig_item, emp) in enumerate(city_employees):
+            r = first_emp_r + i
+            ws.cell(row=r, column=1, value=orig_item)
+            _cert_body_style(ws.cell(row=r, column=1), h='center')
+            ws.cell(row=r, column=2, value=emp.full_name)
+            _cert_body_style(ws.cell(row=r, column=2), h='left')
+            ws.cell(row=r, column=3, value=emp.cargo or '')
+            _cert_body_style(ws.cell(row=r, column=3), h='left')
+            ws.cell(row=r, column=4, value=month_start)
+            _cert_body_style(ws.cell(row=r, column=4), h='center', num_fmt='yyyy-mm-dd')
+            ws.cell(row=r, column=5, value=25)
+            _cert_body_style(ws.cell(row=r, column=5), h='center', num_fmt=CERT_ACCT_FMT)
+            # Days from employee sheet
+            for d in range(1, 32):
+                col = 5 + d
+                cell = ws.cell(row=r, column=col)
+                if d <= days_in_month:
+                    emp_sheet_row = 9 + d
+                    cell.value = f'=+IF(\'{orig_item}\'!F{emp_sheet_row}>1,"SI","NO")'
+                _cert_body_style(cell, h='center')
+            ws.cell(row=r, column=37, value=f'=+COUNTIF(F{r}:AJ{r},"SI")')
+            _cert_body_style(ws.cell(row=r, column=37), h='center')
+            ws.cell(row=r, column=38, value=f'=+AK{r}*E{r}')
+            _cert_body_style(ws.cell(row=r, column=38), h='center', num_fmt=CERT_ACCT_FMT)
+            ws.cell(row=r, column=39, value=f'=+AL{r}*{fee_ref}')
+            _cert_body_style(ws.cell(row=r, column=39), h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+            ws.row_dimensions[r].height = 19.95
+
+        # Subtotal
+        sub_r = last_emp_r + 1 if city_employees else first_emp_r
+        if city_employees:
+            ws.cell(row=sub_r, column=39,
+                    value=f'=SUM(AM{first_emp_r}:AM{last_emp_r})')
+        else:
+            ws.cell(row=sub_r, column=39, value=0)
+        _cert_body_style(ws.cell(row=sub_r, column=39), h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+
+        return sub_r
+
+    # Template LPZ title at row 39 (shift applied)
+    lpz_title_r = 39 + shift
+    lpz_sub_r = _build_catering('PLANILLA DE ALIMENTACION LA PAZ', 'LPZ', lpz_title_r)
+
+    cba_title_r = lpz_sub_r + 2
+    cba_sub_r = _build_catering('PLANILLA DE ALIMENTACION CBA', 'CBA', cba_title_r)
+
+    scz_title_r = cba_sub_r + 2
+    scz_sub_r = _build_catering('PLANILLA DE ALIMENTACION SCZ', 'SCZ', scz_title_r)
+
+    # ── Grand total ─────────────────────────────────────────────
+    total_r = scz_sub_r + 2
+    ws.row_dimensions[total_r].height = 25.8
+    _cert_merge_body(ws, f'W{total_r}:AK{total_r}', value='TOTAL FACTURACION',
+                     h='center', bold=True)
+    ws[f'W{total_r}'].font = Font(name='Calibri', size=20, bold=True, color=CERT_BLACK)
+
+    grand_total_formula = (
+        f'=+{pl_subtotal_ref}+{pl_travel_ref}+{pl_equip_ref}+'
+        f'AM{lpz_sub_r}+AM{cba_sub_r}+AM{scz_sub_r}'
+    )
+    _cert_merge_body(ws, f'AL{total_r}:AM{total_r}', value=grand_total_formula,
+                     h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+    ws[f'AL{total_r}'].font = Font(name='Calibri', size=20, bold=True, color=CERT_BLACK)
+
+    # "Son : [total]" text
+    son_r = total_r + 2
+    ws.row_dimensions[son_r].height = 23.4
+    _cert_merge_body(ws,
+                     f'W{son_r}:AM{son_r}',
+                     value=f'="Son : " & TEXT(AL{total_r},"#,##0.00") & " Bolivianos"',
+                     h='center', bold=True, wrap=True)
+
+    # ── Signature block ─────────────────────────────────────────
+    sig_top_r = son_r + 2
+    sig_bottom_r = sig_top_r + 4
+    for rr in (sig_bottom_r, sig_bottom_r + 1):
+        ws.row_dimensions[rr].height = 14.4
+    _cert_merge_body(ws, f'C{sig_top_r}:M{sig_top_r + 3}', value='', h='center')
+    _cert_merge_body(ws, f'O{sig_top_r}:AA{sig_top_r + 3}', value='', h='center')
+    _cert_merge_body(ws, f'AC{sig_top_r}:AM{sig_top_r + 3}', value='', h='center')
+
+    _cert_merge_header(ws, f'C{sig_bottom_r}:M{sig_bottom_r + 1}',
+                       'REDLINE GENERAL SERVICES', size=16, h='center', wrap=True)
+    _cert_merge_header(ws, f'O{sig_bottom_r}:AA{sig_bottom_r + 1}',
+                       'FIRMA APROBACION EMBOL', size=16, h='center', wrap=True)
+    _cert_merge_header(ws, f'AC{sig_bottom_r}:AM{sig_bottom_r + 1}',
+                       'FIRMA APROBACION EMBOL', size=16, h='center', wrap=True)
+
+
+class CertificadoExportView(APIView):
+    """Descarga el Certificado de Pago como .xlsx (replica template.xlsx)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            executive = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not executive.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        local_now = _local_now()
+        try:
+            year  = int(request.query_params.get('year',  local_now.year))
+            month = int(request.query_params.get('month', local_now.month))
+            if not (1 <= month <= 12):
+                raise ValueError
+        except (ValueError, TypeError):
+            year, month = local_now.year, local_now.month
+
+        from_date = _date(year, month, 1)
+        to_date   = _date(year, month, _cal.monthrange(year, month)[1])
+        first_dt  = timezone.make_aware(_datetime.combine(from_date, _time(0, 0, 0)))
+        last_dt   = timezone.make_aware(_datetime.combine(to_date,   _time(23, 59, 59)))
+
+        employees = list(Employee.objects
+                         .filter(is_active=True, is_executive=False)
+                         .order_by('full_name'))
+
+        wd_lookup = {}
+        for wd in Workday.objects.filter(
+            employee__in=employees,
+            status=Workday.STATUS_COMPLETED,
+            start_time__gte=first_dt, start_time__lte=last_dt,
+        ).select_related('employee'):
+            ls = timezone.localtime(wd.start_time)
+            wd_lookup[(wd.employee_id, ls.date())] = wd
+
+        leave_labels = dict(EmployeeLeave.TYPE_CHOICES)
+        leaves_lookup = {}
+        for lv in EmployeeLeave.objects.filter(
+            employee__in=employees,
+            start_date__lte=to_date, end_date__gte=from_date,
+        ):
+            d = lv.start_date
+            while d <= lv.end_date:
+                if from_date <= d <= to_date:
+                    txt = leave_labels.get(lv.leave_type, lv.leave_type)
+                    if lv.note:
+                        txt += f' ({lv.note})'
+                    leaves_lookup.setdefault((lv.employee_id, d), []).append(txt)
+                d += timedelta(days=1)
+
+        note_labels = dict(CalendarNote.TYPE_CHOICES)
+        notes_lookup = {}
+        for note in CalendarNote.objects.filter(date__gte=from_date, date__lte=to_date):
+            lbl = note_labels.get(note.note_type, note.note_type)
+            notes_lookup.setdefault(note.date, []).append(f'{lbl}: {note.text}')
+
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+
+        # Build PL (index 0) and employee sheets
+        _build_cert_pl_sheet(wb, employees, year, month, wd_lookup)
+        for idx, emp in enumerate(employees, start=1):
+            _build_cert_employee_sheet(wb, idx, emp, year, month,
+                                       wd_lookup, leaves_lookup, notes_lookup)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        filename = f'certificado-{year}-{month:02d}.xlsx'
+        response = HttpResponse(
+            buf.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response

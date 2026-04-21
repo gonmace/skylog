@@ -124,7 +124,7 @@
   #rp-denied { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
   .rp-denied-card { background: var(--cp-surface); border: 1px solid var(--cp-surface-border); border-radius: 20px; padding: 48px 36px; max-width: 380px; width: 100%; text-align: center; }
   @media print {
-    .rp-filters, .rp-back-wrap, #rp-print-btn, #rp-export-btn { display: none !important; }
+    .rp-filters, .rp-back-wrap, #rp-print-btn, #rp-export-btn, #rp-cert-btn { display: none !important; }
     .rp-page { background: white !important; }
     .rp-card { box-shadow: none !important; border: 1px solid #ddd !important; background: white !important; }
     .rp-table thead th { color: #555 !important; }
@@ -161,6 +161,10 @@
           <button id="rp-export-btn" onclick="exportExcel()" class="rp-btn" type="button" disabled style="background:color-mix(in srgb,var(--cp-green) 15%,transparent);border-color:color-mix(in srgb,var(--cp-green) 28%,transparent);color:var(--cp-green);">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Exportar Excel
+          </button>
+          <button id="rp-cert-btn" onclick="exportCertificado()" class="rp-btn" type="button" style="background:color-mix(in srgb,var(--cp-red) 15%,transparent);border-color:color-mix(in srgb,var(--cp-red) 28%,transparent);color:var(--cp-red);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            Exportar Certificado
           </button>
           <button id="rp-print-btn" onclick="window.print()" class="rp-btn" type="button" style="background:rgba(255,255,255,0.06); border-color:var(--cp-surface-border); color:var(--cp-text-mid);">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -424,6 +428,41 @@ function exportExcel() {
     .finally(function() {
       btn.disabled = false;
       btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Exportar Excel';
+    });
+}
+
+function exportCertificado() {
+  var y = document.getElementById('sel-year').value;
+  var m = document.getElementById('sel-month').value;
+  if (_mode === 'range') {
+    var f = document.getElementById('inp-from').value;
+    if (f) {
+      y = f.substring(0, 4);
+      m = String(parseInt(f.substring(5, 7), 10));
+    }
+  }
+  var exportUrl = '/api/reporte/export-certificado/?year=' + y + '&month=' + m;
+  var access = localStorage.getItem('access');
+  var btn = document.getElementById('rp-cert-btn');
+  var originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = 'Generando…';
+  fetch(exportUrl, { headers: { 'Authorization': 'Bearer ' + access } })
+    .then(function(res) {
+      if (!res.ok) throw new Error('Error ' + res.status);
+      return res.blob();
+    })
+    .then(function(blob) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'certificado-' + y + '-' + String(m).padStart(2, '0') + '.xlsx';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    })
+    .catch(function(err) { alert('No se pudo exportar el certificado: ' + err.message); })
+    .finally(function() {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
     });
 }
 
