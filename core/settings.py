@@ -181,15 +181,8 @@ AXES_COOLOFF_TIME = 1  # hora
 AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']
 
 # ── Content Security Policy ───────────────────────────────────────────────────
-CSP_DEFAULT_SRC = ("'self'",)
-CSP_SCRIPT_SRC = ("'self'",)
-CSP_STYLE_SRC = ("'self'",)
-CSP_IMG_SRC = ("'self'", "data:")
-CSP_FONT_SRC = ("'self'",)
-CSP_CONNECT_SRC = ("'self'", "http://127.0.0.1:7337") if not DEBUG else ("'self'", "ws://localhost:*", "ws://127.0.0.1:*", "http://127.0.0.1:7337")
-CSP_FORM_ACTION = ("'self'", "https://sky.redlinegs.com")
-CSP_OBJECT_SRC = ("'none'",)
-CSP_BASE_URI = ("'self'",)
+# La política (formato django-csp 4.x) se define más abajo en CONTENT_SECURITY_POLICY,
+# tras NEXTCLOUD_SERVER_URL (necesario para frame-ancestors).
 
 # ── Django REST Framework ─────────────────────────────────────────────────────
 from datetime import timedelta
@@ -250,8 +243,29 @@ NEXTCLOUD_OAUTH2_REDIRECT_URI = config('NEXTCLOUD_OAUTH2_REDIRECT_URI', default=
 # URL a la que se redirige tras autenticación (ej: página de Nextcloud que contiene el iframe)
 NEXTCLOUD_RETURN_URL = config('NEXTCLOUD_RETURN_URL', default='')
 
-# Permitir que Nextcloud embeba la app en iframe
-CSP_FRAME_ANCESTORS = ("'self'", NEXTCLOUD_SERVER_URL)
+# ── Content Security Policy (django-csp 4.x) ──────────────────────────────────
+# Varias plantillas usan <script> inline y handlers onclick, además de estilos
+# inline y los que inyecta ApexCharts; por eso script-src/style-src incluyen
+# 'unsafe-inline'. El resto de directivas se mantienen estrictas.
+# (Nextcloud embebe la app en iframe → frame-ancestors lo permite.)
+_csp_connect = ["'self'", "http://127.0.0.1:7337"]
+if DEBUG:
+    _csp_connect += ["ws://localhost:*", "ws://127.0.0.1:*"]
+
+CONTENT_SECURITY_POLICY = {
+    "DIRECTIVES": {
+        "default-src": ["'self'"],
+        "script-src": ["'self'", "'unsafe-inline'"],
+        "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        "img-src": ["'self'", "data:"],
+        "font-src": ["'self'", "https://fonts.gstatic.com"],
+        "connect-src": _csp_connect,
+        "form-action": ["'self'", "https://sky.redlinegs.com"],
+        "object-src": ["'none'"],
+        "base-uri": ["'self'"],
+        "frame-ancestors": ["'self'", NEXTCLOUD_SERVER_URL],
+    },
+}
 SCREENSHOT_STORAGE_PATH = config('SCREENSHOT_STORAGE_PATH', default='screenshots')
 _av = {}
 exec(open(os.path.join(BASE_DIR, 'agent', 'version.py')).read(), _av)
