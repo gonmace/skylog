@@ -86,13 +86,18 @@ def _upsert_user_and_employee(login_name, display_name, email, is_executive, sky
     user.last_name = name_parts[1] if len(name_parts) > 1 else ''
     user.save()
 
+    # full_name siempre en MAYÚSCULAS (consistente con la migración 0019 y el
+    # entorno local). Sin esto, cada login web revertía full_name al displayname
+    # de Nextcloud en title-case. first/last quedan en title-case del displayname.
+    full_name_upper = display_name.upper()
+
     employee, _ = Employee.objects.get_or_create(
         nextcloud_username=login_name,
-        defaults={'user': user, 'full_name': display_name},
+        defaults={'user': user, 'full_name': full_name_upper},
     )
     update_fields = []
-    if employee.full_name != display_name:
-        employee.full_name = display_name
+    if employee.full_name != full_name_upper:
+        employee.full_name = full_name_upper
         update_fields.append('full_name')
     if employee.is_executive != is_executive:
         employee.is_executive = is_executive
