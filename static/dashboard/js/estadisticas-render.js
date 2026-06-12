@@ -1,6 +1,7 @@
 /* Estadísticas — funciones de render compartidas por la página /estadisticas/
    y el panel personal del dashboard. Requiere ApexCharts y los IDs es-*. */
 var _charts = {};
+var _chartHeights = {};  // última altura por gráfico (para recrear si cambia)
 
 // Paleta categórica fija — 11 colores distintos legibles en tema oscuro.
 // (un gráfico multi-serie necesita más hues distintos que los del tema).
@@ -176,11 +177,21 @@ function renderTopCat(data) {
 function destroyCharts() {
   Object.keys(_charts).forEach(function(k){ if (_charts[k]) { try { _charts[k].destroy(); } catch (e) {} } });
   _charts = {};
+  _chartHeights = {};
 }
 
 // Crea el gráfico si no existe, o actualiza la instancia en su lugar.
-// (Destruir y recrear ApexCharts en el mismo <div> no re-renderiza de forma fiable.)
+// Si la ALTURA cambió, recrea: ApexCharts no actualiza chart.height de forma
+// fiable vía updateOptions (el SVG cambia pero el contenedor mantiene la altura
+// vieja → el contenido se desborda hacia abajo).
 function upsertChart(key, el, opts) {
+  var h = opts.chart && opts.chart.height;
+  if (_charts[key] && _chartHeights[key] !== h) {
+    try { _charts[key].destroy(); } catch (e) {}
+    _charts[key] = null;
+    el.innerHTML = '';
+  }
+  _chartHeights[key] = h;
   if (_charts[key]) {
     _charts[key].updateOptions(opts, true, true);
   } else {
