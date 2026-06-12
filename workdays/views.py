@@ -2106,9 +2106,9 @@ class MisEstadisticasView(APIView):
             'category_labels': cat_labels, 'category_colors': cat_colors,
             'categories': categories, 'monthly': monthly,
             'by_role': by_role, 'selected_employee': selected_employee, 'employees': employees,
-            'by_project':     _tag_breakdown(_base_qs(first_dt, last_dt), 'project', split_by_sede=True),
-            'by_location':    _tag_breakdown(_base_qs(first_dt, last_dt), 'location'),
-            'by_deliverable': _tag_breakdown(_base_qs(first_dt, last_dt), 'deliverable', split_by_sede=True),
+            'by_project':     _tag_breakdown(_base_qs(first_dt, last_dt), 'project', split_by_sede=True, total_qs=ref_qs),
+            'by_location':    _tag_breakdown(_base_qs(first_dt, last_dt), 'location', total_qs=ref_qs),
+            'by_deliverable': _tag_breakdown(_base_qs(first_dt, last_dt), 'deliverable', split_by_sede=True, total_qs=ref_qs),
         })
 
 
