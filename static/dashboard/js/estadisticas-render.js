@@ -62,11 +62,14 @@ function renderTagList(containerId, items) {
   }).join('');
 }
 
-function renderTags(data) {
-  // Con un empleado seleccionado, "Por sede" sería una sola sede → ocultar la tarjeta.
+function renderTags(data, opts) {
+  opts = opts || {};
+  // Con un empleado seleccionado, "Por sede" sería una sola sede → ocultar la
+  // tarjeta. Salvo keepSede (vista propia del empleado, que sí muestra su sede).
   var perEmp = !!data.selected_employee;
+  var hideSede = perEmp && !opts.keepSede;
   var sedeCard = document.getElementById('es-card-sede');
-  if (sedeCard) sedeCard.style.display = perEmp ? 'none' : '';
+  if (sedeCard) sedeCard.style.display = hideSede ? 'none' : '';
 
   // Leyenda "Empleado / Todos" en proyecto y entregable cuando hay un empleado.
   var legHtml = '';
@@ -81,7 +84,7 @@ function renderTags(data) {
   });
 
   renderTagList('es-tags-project', data.by_project);
-  if (!perEmp) renderTagList('es-tags-location', data.by_location);
+  if (!hideSede) renderTagList('es-tags-location', data.by_location);
   renderTagList('es-tags-deliverable', data.by_deliverable);
   // leyenda de colores de sede (para las barras apiladas de proyecto/entregable)
   var leg = document.getElementById('es-sede-legend');

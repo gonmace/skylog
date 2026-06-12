@@ -78,6 +78,17 @@
   .es-legend { display:flex;flex-wrap:wrap;gap:5px 14px;justify-content:center;margin-top:10px; }
   .es-leg-item { display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;color:rgba(255,255,255,0.7); }
   .es-leg-dot { width:11px;height:11px;border-radius:3px;flex-shrink:0; }
+  /* ── Tag breakdown rows (JS-generated: usado por renderTagList()) ─── */
+  .es-taglist { display:flex;flex-direction:column;gap:11px; }
+  .es-tagrow { display:flex;flex-direction:column;gap:4px; }
+  .es-taghead { display:flex;justify-content:space-between;align-items:baseline;gap:8px; }
+  .es-tagname { font-size:0.8rem;color:var(--cp-text-hi);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0; }
+  .es-tagcount { font-size:0.9rem;font-weight:700;font-variant-numeric:tabular-nums;color:var(--cp-text-hi);flex:none; }
+  .es-tagtot { font-size:0.78rem;font-weight:500;color:var(--cp-text-lo); }
+  .es-tagbar { height:8px;border-radius:99px;background:rgba(255,255,255,0.06);overflow:hidden;width:100%; }
+  .es-tagbar-fill { height:100%;border-radius:99px;background:var(--cp-blue); }
+  .es-tagbar-stack { display:flex; }
+  .es-tagseg { height:100%; }
 </style>
 
 <div class="min-h-screen bg-base-200">
@@ -411,11 +422,34 @@
         </div>
 
         <!-- Top categorías -->
-        <div class="card bg-base-100 shadow overflow-hidden">
+        <div class="card bg-base-100 shadow overflow-hidden mb-5">
           <div class="px-7 py-4 border-b border-base-content/10"><p class="text-sm font-bold">Top categorías</p></div>
           <div class="px-4 py-4">
             <div id="es-topcat-single"></div>
             <div id="es-topcat-cmp" style="display:none"></div>
+          </div>
+        </div>
+
+        <!-- Proyectos / Sede / Entregables (tags extraídos por el LLM) -->
+        <div id="es-sede-legend" class="flex flex-wrap items-center gap-3 mb-2 text-xs text-base-content/60"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div class="card bg-base-100 shadow px-6 py-5">
+            <div class="flex items-baseline justify-between mb-3">
+              <p class="text-sm font-bold">Por proyecto <span class="text-base-content/40 font-normal text-xs">· actividades</span></p>
+              <span id="es-leg-project" class="text-xs"></span>
+            </div>
+            <div id="es-tags-project" class="es-taglist"></div>
+          </div>
+          <div id="es-card-sede" class="card bg-base-100 shadow px-6 py-5">
+            <p class="text-sm font-bold mb-3">Por sede <span class="text-base-content/40 font-normal text-xs">· actividades</span></p>
+            <div id="es-tags-location" class="es-taglist"></div>
+          </div>
+          <div class="card bg-base-100 shadow px-6 py-5">
+            <div class="flex items-baseline justify-between mb-3">
+              <p class="text-sm font-bold">Por entregable <span class="text-base-content/40 font-normal text-xs">· actividades</span></p>
+              <span id="es-leg-deliverable" class="text-xs"></span>
+            </div>
+            <div id="es-tags-deliverable" class="es-taglist"></div>
           </div>
         </div>
       </div>
@@ -549,7 +583,7 @@
 {% block extra_scripts %}
 <script src="{% static 'dashboard/js/employee.js' %}" defer></script>
 <script src="{% static 'js/vendor/apexcharts.min.js' %}"></script>
-<script src="{% static 'dashboard/js/estadisticas-render.js' %}?v=9"></script>
+<script src="{% static 'dashboard/js/estadisticas-render.js' %}?v=10"></script>
 <script>
 // ── "Mis estadísticas": glue del panel personal. Reutiliza las funciones de render
 //    compartidas (estadisticas-render.js) sobre /api/mis-estadisticas/. ──
@@ -619,6 +653,7 @@ function loadStats() {
       renderMetrics(data);
       renderEmployees(data);
       renderTopCat(data);
+      renderTags(data, { keepSede: true });
     })
     .catch(function () { document.getElementById('es-loading').style.display = 'none'; });
 }
