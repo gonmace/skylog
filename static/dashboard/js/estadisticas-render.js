@@ -365,10 +365,15 @@ function renderMetrics(data) {
     + '<th class="center">% del total</th><th class="center">Categ.</th>'
     + '<th>Categorías principales</th><th class="center">Último reporte</th>';
   var labels = data.category_labels || {};
+  // % del total = participación sobre el total GLOBAL (suma de ambos roles), para
+  // que tenga sentido también en la vista propia del empleado (donde total_items
+  // es el del propio empleado → siempre 100%) y sea comparable con los promedios.
+  var globalTotal = (data.by_role || []).reduce(function(s, r){ return s + (r.total || 0); }, 0)
+                    || data.total_items || 0;
   var body = '';
   data.employees.forEach(function(e){
     var perday = e.reports ? (e.total / e.reports).toFixed(1) : '—';
-    var pct = data.total_items ? (100 * e.total / data.total_items).toFixed(1) : '0';
+    var pct = globalTotal ? (100 * e.total / globalTotal).toFixed(1) : '0';
     var ranked = Object.keys(e.categories).filter(function(k){ return e.categories[k] > 0; })
                        .sort(function(a, b){ return e.categories[b] - e.categories[a]; });
     var distinct = ranked.length;
@@ -399,7 +404,7 @@ function renderMetrics(data) {
         + '<td class="center">' + r.avg_reports + '</td>'
         + '<td class="center">' + r.avg_total + '</td>'
         + '<td class="center">' + r.avg_perday + '</td>'
-        + '<td class="center muted">—</td>'
+        + '<td class="center muted">' + (globalTotal ? (100 * r.avg_total / globalTotal).toFixed(1) + '%' : '—') + '</td>'
         + '<td class="center">' + ranked.length + '</td>'
         + '<td><div style="display:flex;flex-direction:column;gap:2px;line-height:1.35">'
         +   catChip(top, labels)
