@@ -226,9 +226,12 @@ SIMPLE_JWT = {
 REDIS_URL = config('REDIS_URL', default='')
 
 if REDIS_URL:
+    # Pub/Sub layer: la app solo usa grupos (group_send/group_add), no envíos
+    # punto-a-punto. Evita el "Timeout reading from redis" del backend core
+    # (cuyas lecturas bloqueantes BZPOPMIN expiran y tiran el WebSocket).
     CHANNEL_LAYERS = {
         'default': {
-            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'BACKEND': 'channels_redis.pubsub.RedisPubSubChannelLayer',
             'CONFIG': {'hosts': [REDIS_URL]},
         }
     }
