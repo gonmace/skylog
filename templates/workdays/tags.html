@@ -375,7 +375,7 @@ function escapeHtml(s) {
   apiFetch('/api/auth/me/')
     .then(function (res) { return res.json(); })
     .then(function (me) {
-      if (!me || !me.is_executive) { showDenied(); return; }
+      if (!me || (!me.is_executive && !me.can_edit_tags)) { showDenied(); return; }
       document.getElementById('tg-main').style.display = '';
       load();
     })

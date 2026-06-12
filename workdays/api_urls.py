@@ -9,6 +9,7 @@ from .views import (
     EmployeePendingMessagesView, EmployeeViewDataView, CloseStaleWorkdaysView, CloseDayMessagesView,
     DoneActivitiesView, ClassifyDoneView, TagsListView, TagMergeView, TagIgnoreView,
     TagUnmergeView, TagRenameView, TagEmployeesView, EstadisticasAPIView, MisEstadisticasView,
+    MessageLeadsView, AdminPermissionsListView, AdminPermissionsUpdateView,
 )
 
 urlpatterns = [
@@ -22,7 +23,10 @@ urlpatterns = [
     path('employees/<int:employee_id>/skylog/', EmployeeSkylogToggleView.as_view()),
     path('employees/<int:employee_id>/message/', SendMessageView.as_view()),
     path('messages/pending/', PendingMessagesView.as_view()),
+    path('messages/leads/', MessageLeadsView.as_view()),
     path('messages/<int:message_id>/acknowledge/', AcknowledgeMessageView.as_view()),
+    path('admin/permissions/', AdminPermissionsListView.as_view()),
+    path('admin/permissions/<int:employee_id>/', AdminPermissionsUpdateView.as_view()),
     path('workday/monthly/', WorkdayMonthlyView.as_view()),
     path('employees/<int:employee_id>/monthly/', EmployeeMonthlyView.as_view()),
     path('calendar/notes/', CalendarNotesView.as_view()),

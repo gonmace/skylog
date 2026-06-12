@@ -60,7 +60,8 @@
     .max-w-screen-2xl { max-width:100% !important; padding:0 !important; }
     .es-table tbody tr { border-bottom:1px solid #eee !important; }
     /* Conservar colores de gráficos, barras de Top categorías, dots de leyendas/tablas y pills */
-    .apexcharts-canvas, #es-topcat [style], #es-met-body [style*="background"], .es-leg-dot, .es-role-pill {
+    .apexcharts-canvas, #es-topcat [style], #es-met-body [style*="background"], .es-leg-dot, .es-role-pill,
+    .es-tagbar, .es-tagbar-fill, .es-tagseg {
       -webkit-print-color-adjust:exact; print-color-adjust:exact;
     }
   }
@@ -465,7 +466,8 @@ if (_embed) {
     .then(function(res) { return res.json(); })
     .then(function(me) {
       // Empleado normal: vista personal (mismo diseño, solo sus datos, sin filtros de rol/empleado).
-      if (!me.is_executive) {
+      // Quien tenga can_view_stats accede a la vista global completa, como un ejecutivo.
+      if (!me.is_executive && !me.can_view_stats) {
         _selfOnly = true;
         document.getElementById('es-grp-role').style.display = 'none';
         document.getElementById('es-grp-emp').style.display = 'none';

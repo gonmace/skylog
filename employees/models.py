@@ -63,6 +63,21 @@ class Employee(models.Model):
         verbose_name='Acceso a Skylog',
         help_text='Deshabilitar bloquea el acceso al agente y al dashboard de este empleado.',
     )
+    can_message_leads = models.BooleanField(
+        default=False,
+        verbose_name='Puede enviar mensajes a Sup/PM',
+        help_text='Habilita un botón para enviar un mensaje a todos los Supervisores y/o Project Managers.',
+    )
+    can_view_stats = models.BooleanField(
+        default=False,
+        verbose_name='Puede ver estadísticas globales',
+        help_text='Habilita el acceso a las estadísticas de todos los empleados (las que ven los ejecutivos).',
+    )
+    can_edit_tags = models.BooleanField(
+        default=False,
+        verbose_name='Puede editar etiquetas',
+        help_text='Habilita el acceso a la gestión de etiquetas (proyectos, sedes, entregables).',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     agent_last_seen = models.DateTimeField(null=True, blank=True)
     agent_version = models.CharField(max_length=20, blank=True, default='')

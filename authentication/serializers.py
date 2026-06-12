@@ -11,7 +11,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Employee
-        fields = ['id', 'nextcloud_username', 'full_name', 'cargo', 'is_active', 'is_executive', 'solo_movil', 'mobile_type', 'email', 'agent_version', 'agent_is_active', 'agent_last_seen', 'skylog_access']
+        fields = ['id', 'nextcloud_username', 'full_name', 'cargo', 'is_active', 'is_executive', 'solo_movil', 'mobile_type', 'email', 'agent_version', 'agent_is_active', 'agent_last_seen', 'skylog_access', 'can_message_leads', 'can_view_stats', 'can_edit_tags']
 
     def get_agent_is_active(self, obj):
         return obj.agent_online

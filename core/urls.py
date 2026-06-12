@@ -32,6 +32,7 @@ urlpatterns = [
     path('reporte/', include('workdays.reporte_urls')),
     path('estadisticas/', include('workdays.estadisticas_urls')),
     path('etiquetas/', never_cache(TemplateView.as_view(template_name='workdays/tags.html')), name='tags_admin'),
+    path('permisos/', never_cache(TemplateView.as_view(template_name='workdays/permisos.html')), name='permisos_admin'),
     path('dashboard/', include('workdays.urls')),
     path('dashboard/employee/', never_cache(TemplateView.as_view(template_name='dashboard/employee.html')), name='dashboard_employee'),
     path('dashboard/executive/', never_cache(TemplateView.as_view(template_name='dashboard/executive.html')), name='dashboard_executive'),

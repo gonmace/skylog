@@ -388,7 +388,7 @@ class TagsListView(APIView):
             emp = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not emp.is_executive:
+        if not (emp.is_executive or emp.can_edit_tags):
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
         kind = request.query_params.get('kind', ActivityTag.KIND_PROJECT)
@@ -456,7 +456,7 @@ class TagMergeView(APIView):
             emp = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not emp.is_executive:
+        if not (emp.is_executive or emp.can_edit_tags):
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
         try:
@@ -490,7 +490,7 @@ class TagUnmergeView(APIView):
             emp = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not emp.is_executive:
+        if not (emp.is_executive or emp.can_edit_tags):
             return Response({'error': 'Acceso no autorizado'}, status=403)
         ids = [i for i in (request.data.get('ids') or [])
                if isinstance(i, int) or (isinstance(i, str) and i.isdigit())]
@@ -511,7 +511,7 @@ class TagIgnoreView(APIView):
             emp = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not emp.is_executive:
+        if not (emp.is_executive or emp.can_edit_tags):
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
         ids = [i for i in (request.data.get('ids') or [])
@@ -539,7 +539,7 @@ class TagRenameView(APIView):
             emp = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not emp.is_executive:
+        if not (emp.is_executive or emp.can_edit_tags):
             return Response({'error': 'Acceso no autorizado'}, status=403)
         try:
             tag = ActivityTag.objects.get(id=tag_id)
@@ -565,7 +565,7 @@ class TagEmployeesView(APIView):
             emp = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not emp.is_executive:
+        if not (emp.is_executive or emp.can_edit_tags):
             return Response({'error': 'Acceso no autorizado'}, status=403)
         try:
             tag = ActivityTag.objects.get(id=tag_id)
@@ -916,6 +916,103 @@ class SendMessageView(APIView):
             pass
 
         return Response({'id': message.id, 'sent_at': message.sent_at}, status=status.HTTP_201_CREATED)
+
+
+class MessageLeadsView(APIView):
+    """Usuario habilitado (can_message_leads) envía un mensaje a todos los
+    Supervisores y/o Project Managers no ejecutivos."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            sender = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        if not (sender.can_message_leads or request.user.is_superuser):
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        body = request.data.get('body', '').strip()
+        if not body:
+            return Response({'error': 'El mensaje no puede estar vacío'}, status=status.HTTP_400_BAD_REQUEST)
+
+        valid = {Employee.ROLE_SUPERVISOR, Employee.ROLE_PROJECT_MANAGER}
+        targets = request.data.get('targets') or list(valid)
+        targets = [t for t in targets if t in valid]
+        if not targets:
+            return Response({'error': 'Selecciona al menos un destino (Supervisores o PMs)'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # `role` es una property derivada de `cargo`, no una columna: filtrar en Python.
+        recipients = [
+            emp for emp in Employee.objects.filter(is_active=True, is_executive=False)
+            if emp.role in targets and emp.id != sender.id
+        ]
+
+        if not recipients:
+            return Response({'sent': 0})
+
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+        channel_layer = get_channel_layer()
+
+        for emp in recipients:
+            ExecutiveMessage.objects.create(sender=sender, recipient=emp, body=body)
+            try:
+                async_to_sync(channel_layer.group_send)(
+                    f'dashboard_{emp.id}',
+                    {'type': 'new_message'},
+                )
+            except Exception:
+                pass
+
+        return Response({'sent': len(recipients)}, status=status.HTTP_201_CREATED)
+
+
+class AdminPermissionsListView(APIView):
+    """Superuser: lista de empleados activos con sus permisos granulares."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_superuser:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        employees = Employee.objects.filter(is_active=True).order_by('full_name')
+        data = [{
+            'id': e.id,
+            'full_name': e.full_name,
+            'cargo': e.cargo,
+            'role': e.role,
+            'role_label': e.role_label,
+            'is_executive': e.is_executive,
+            'can_message_leads': e.can_message_leads,
+            'can_view_stats': e.can_view_stats,
+            'can_edit_tags': e.can_edit_tags,
+        } for e in employees]
+        return Response(data)
+
+
+class AdminPermissionsUpdateView(APIView):
+    """Superuser: habilita/deshabilita un permiso granular de un empleado."""
+    permission_classes = [IsAuthenticated]
+    ALLOWED_FIELDS = {'can_message_leads', 'can_view_stats', 'can_edit_tags'}
+
+    def post(self, request, employee_id):
+        if not request.user.is_superuser:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        field = request.data.get('field')
+        if field not in self.ALLOWED_FIELDS:
+            return Response({'error': 'Campo inválido'}, status=status.HTTP_400_BAD_REQUEST)
+        value = bool(request.data.get('value'))
+
+        try:
+            emp = Employee.objects.get(id=employee_id, is_active=True)
+        except Employee.DoesNotExist:
+            return Response({'error': 'Empleado no encontrado'}, status=404)
+
+        setattr(emp, field, value)
+        emp.save(update_fields=[field])
+        return Response({'id': emp.id, field: value})
 
 
 class EmployeePendingMessagesView(APIView):
@@ -1682,7 +1779,7 @@ class EstadisticasAPIView(APIView):
             executive = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not executive.is_executive:
+        if not (executive.is_executive or executive.can_view_stats):
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
         mode = request.query_params.get('mode', 'month')

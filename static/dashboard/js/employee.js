@@ -127,6 +127,60 @@
   // ─────────────────────────────────────────────────────────────
   //  Employee
   // ─────────────────────────────────────────────────────────────
+  function initLeadsModal() {
+    const openBtn  = document.getElementById('emp-btn-leads');
+    const modal    = document.getElementById('modal-leads');
+    if (!openBtn || !modal) return;
+    const body     = document.getElementById('leads-body');
+    const cbSup    = document.getElementById('leads-target-sup');
+    const cbPm     = document.getElementById('leads-target-pm');
+    const errEl    = document.getElementById('leads-error');
+    const okEl     = document.getElementById('leads-ok');
+    const btnSend  = document.getElementById('leads-send');
+    const btnCancel= document.getElementById('leads-cancel');
+
+    openBtn.addEventListener('click', () => {
+      body.value = '';
+      cbSup.checked = true; cbPm.checked = true;
+      errEl.classList.add('hidden'); okEl.classList.add('hidden');
+      btnSend.disabled = false; btnSend.textContent = 'Enviar';
+      modal.showModal();
+    });
+    btnCancel.addEventListener('click', () => modal.close());
+
+    btnSend.addEventListener('click', async () => {
+      const text = body.value.trim();
+      const targets = [];
+      if (cbSup.checked) targets.push('supervisor');
+      if (cbPm.checked)  targets.push('project_manager');
+      errEl.classList.add('hidden'); okEl.classList.add('hidden');
+      if (!text) { errEl.textContent = 'El mensaje no puede estar vacío.'; errEl.classList.remove('hidden'); return; }
+      if (!targets.length) { errEl.textContent = 'Selecciona al menos un destino.'; errEl.classList.remove('hidden'); return; }
+      btnSend.disabled = true; btnSend.textContent = 'Enviando...';
+      try {
+        const resp = await fetch('/api/messages/leads/', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+          body: JSON.stringify({ body: text, targets }),
+        });
+        const d = await resp.json().catch(() => ({}));
+        if (resp.ok) {
+          okEl.textContent = `Mensaje enviado a ${d.sent} destinatario(s).`;
+          okEl.classList.remove('hidden');
+          body.value = '';
+          btnSend.textContent = 'Enviar'; btnSend.disabled = false;
+        } else {
+          errEl.textContent = d.error || 'Error al enviar.';
+          errEl.classList.remove('hidden');
+          btnSend.textContent = 'Enviar'; btnSend.disabled = false;
+        }
+      } catch (e) {
+        errEl.textContent = 'Error de conexión.'; errEl.classList.remove('hidden');
+        btnSend.textContent = 'Enviar'; btnSend.disabled = false;
+      }
+    });
+  }
+
   function initEmployee(initialProfileData) {
     let profileData = initialProfileData;
     // Populate profile card
@@ -136,6 +190,14 @@
     if (profileEmail)    profileEmail.textContent    = profileData.email || '';
 
     setAvatar(document.getElementById('profile-avatar'), profileData.full_name || profileData.nextcloud_username);
+
+    // Botones superiores habilitados por permisos granulares.
+    const _showIf = (id, cond) => { const el = document.getElementById(id); if (el && cond) el.style.display = ''; };
+    _showIf('emp-link-stats',    profileData.is_superuser || profileData.can_view_stats);
+    _showIf('emp-link-tags',     profileData.is_superuser || profileData.can_edit_tags);
+    _showIf('emp-btn-leads',     profileData.can_message_leads);
+    _showIf('emp-link-permisos', profileData.is_superuser);
+    if (profileData.can_message_leads) initLeadsModal();
 
     // DOM refs
     const statusLoading   = document.getElementById('status-loading');
