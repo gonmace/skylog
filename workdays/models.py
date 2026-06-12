@@ -241,6 +241,8 @@ class ExecutiveMessage(models.Model):
     sent_at = models.DateTimeField(auto_now_add=True)
     acknowledged_at = models.DateTimeField(null=True, blank=True)
     day_closed = models.BooleanField(default=False)
+    # El empleado descarta (oculta) el mensaje con la ✕ después de confirmarlo (Listo).
+    dismissed = models.BooleanField(default=False)
 
     def __str__(self):
         sender_name = self.sender.full_name if self.sender else 'skyBot'

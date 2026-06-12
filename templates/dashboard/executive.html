@@ -400,10 +400,16 @@
   <div class="modal-box max-w-md">
     <div class="px-6 pt-6 pb-4" style="border-bottom:1px solid var(--cp-divider)">
       <h3 class="font-bold text-lg text-base-content/90">Mensaje a Sup/PM</h3>
-      <p class="text-sm mt-0.5 text-base-content/40">Se enviará a todos los destinatarios seleccionados.</p>
+      <p class="text-sm mt-0.5 text-base-content/40">Elegí los destinatarios y escribí tu mensaje.</p>
     </div>
     <div class="px-6 py-5 flex flex-col gap-3">
-      <div class="flex gap-4">
+      <!-- Selector de modo -->
+      <div class="flex gap-1.5">
+        <button type="button" id="leads-tab-group" class="btn-tinted btn-xs text-info">Por grupo</button>
+        <button type="button" id="leads-tab-people" class="btn-tinted btn-xs text-base-content/40">Personas</button>
+      </div>
+      <!-- Modo grupo -->
+      <div id="leads-mode-group" class="flex gap-4">
         <label class="flex items-center gap-2 cursor-pointer text-sm">
           <input id="leads-target-sup" type="checkbox" checked class="checkbox checkbox-sm checkbox-info">
           Supervisores
@@ -412,6 +418,11 @@
           <input id="leads-target-pm" type="checkbox" checked class="checkbox checkbox-sm checkbox-info">
           Project Managers
         </label>
+      </div>
+      <!-- Modo personas -->
+      <div id="leads-mode-people" style="display:none" class="flex flex-col gap-2">
+        <input id="leads-people-search" type="search" placeholder="Buscar…" class="input input-sm input-bordered bg-base-100">
+        <div id="leads-people-list" class="flex flex-col gap-0.5 max-h-44 overflow-y-auto rounded-lg border border-base-content/10 p-2"></div>
       </div>
       <textarea id="leads-body" class="textarea-ios" rows="4" placeholder="Escribe tu mensaje aquí..."></textarea>
       <div id="leads-error" class="hidden alert alert-error text-sm py-2"></div>

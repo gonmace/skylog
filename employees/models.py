@@ -78,6 +78,11 @@ class Employee(models.Model):
         verbose_name='Puede editar etiquetas',
         help_text='Habilita el acceso a la gestión de etiquetas (proyectos, sedes, entregables).',
     )
+    can_view_report = models.BooleanField(
+        default=False,
+        verbose_name='Puede ver registro de asistencia',
+        help_text='Habilita el acceso al registro de asistencia (las que ven los ejecutivos).',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     agent_last_seen = models.DateTimeField(null=True, blank=True)
     agent_version = models.CharField(max_length=20, blank=True, default='')

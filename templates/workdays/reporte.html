@@ -468,7 +468,7 @@ function showDenied() {
   fetch('/api/auth/me/', { headers: { 'Authorization': 'Bearer ' + access } })
     .then(function(res) { return res.json(); })
     .then(function(me) {
-      if (!me.is_executive) { showDenied(); return; }
+      if (!me.is_executive && !me.can_view_report) { showDenied(); return; }
 
       document.getElementById('rp-main').style.display = '';
       if (me.is_superuser) document.getElementById('rp-cert-btn').style.display = '';

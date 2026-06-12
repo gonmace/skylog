@@ -919,51 +919,91 @@ class SendMessageView(APIView):
 
 
 class MessageLeadsView(APIView):
-    """Usuario habilitado (can_message_leads) envía un mensaje a todos los
-    Supervisores y/o Project Managers no ejecutivos."""
+    """Usuario habilitado (can_message_leads) envía un mensaje a Supervisores y/o
+    Project Managers no ejecutivos: por grupo (rol) o a una lista de personas.
+    GET devuelve los destinatarios elegibles para el modo 'personas'."""
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
+    def _check(self, request):
         try:
             sender = request.user.employee
         except Exception:
-            return Response({'error': 'Perfil no encontrado'}, status=404)
+            return None, Response({'error': 'Perfil no encontrado'}, status=404)
+        if not (sender.is_executive or sender.can_message_leads or request.user.is_superuser):
+            return None, Response({'error': 'Acceso no autorizado'}, status=403)
+        return sender, None
 
-        if not (sender.can_message_leads or request.user.is_superuser):
-            return Response({'error': 'Acceso no autorizado'}, status=403)
+    def get(self, request):
+        sender, err = self._check(request)
+        if err:
+            return err
+        valid = {Employee.ROLE_SUPERVISOR, Employee.ROLE_PROJECT_MANAGER}
+        people = [
+            {'id': e.id, 'name': e.full_name, 'role': e.role, 'role_label': e.role_label}
+            for e in Employee.objects.filter(is_active=True, is_executive=False).order_by('full_name')
+            if e.role in valid and e.id != sender.id
+        ]
+        return Response(people)
+
+    def post(self, request):
+        sender, err = self._check(request)
+        if err:
+            return err
 
         body = request.data.get('body', '').strip()
         if not body:
             return Response({'error': 'El mensaje no puede estar vacío'}, status=status.HTTP_400_BAD_REQUEST)
 
         valid = {Employee.ROLE_SUPERVISOR, Employee.ROLE_PROJECT_MANAGER}
-        targets = request.data.get('targets') or list(valid)
-        targets = [t for t in targets if t in valid]
-        if not targets:
-            return Response({'error': 'Selecciona al menos un destino (Supervisores o PMs)'}, status=status.HTTP_400_BAD_REQUEST)
+        recipient_ids = request.data.get('recipient_ids')
 
         # `role` es una property derivada de `cargo`, no una columna: filtrar en Python.
-        recipients = [
-            emp for emp in Employee.objects.filter(is_active=True, is_executive=False)
-            if emp.role in targets and emp.id != sender.id
-        ]
+        if recipient_ids:
+            # Modo 'personas': destinatarios específicos (validados como Sup/PM no ejecutivos).
+            try:
+                ids = {int(x) for x in recipient_ids}
+            except (TypeError, ValueError):
+                return Response({'error': 'recipient_ids inválido'}, status=status.HTTP_400_BAD_REQUEST)
+            recipients = [
+                emp for emp in Employee.objects.filter(id__in=ids, is_active=True, is_executive=False)
+                if emp.role in valid and emp.id != sender.id
+            ]
+        else:
+            # Modo 'grupo': todos los de los roles elegidos.
+            targets = request.data.get('targets') or list(valid)
+            targets = [t for t in targets if t in valid]
+            if not targets:
+                return Response({'error': 'Selecciona al menos un destino (Supervisores o PMs)'}, status=status.HTTP_400_BAD_REQUEST)
+            recipients = [
+                emp for emp in Employee.objects.filter(is_active=True, is_executive=False)
+                if emp.role in targets and emp.id != sender.id
+            ]
 
         if not recipients:
-            return Response({'sent': 0})
+            return Response({'error': 'No hay destinatarios para el envío'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Firma del remitente al pie del mensaje.
+        signed_body = f"{body}\n\n— {sender.full_name}"
 
         from asgiref.sync import async_to_sync
         from channels.layers import get_channel_layer
         channel_layer = get_channel_layer()
 
-        for emp in recipients:
-            ExecutiveMessage.objects.create(sender=sender, recipient=emp, body=body)
+        def _notify(emp_id):
             try:
                 async_to_sync(channel_layer.group_send)(
-                    f'dashboard_{emp.id}',
-                    {'type': 'new_message'},
+                    f'dashboard_{emp_id}', {'type': 'new_message'},
                 )
             except Exception:
                 pass
+
+        for emp in recipients:
+            ExecutiveMessage.objects.create(sender=sender, recipient=emp, body=signed_body)
+            _notify(emp.id)
+
+        # El remitente también recibe una copia de su propio aviso (se muestra en verde).
+        ExecutiveMessage.objects.create(sender=sender, recipient=sender, body=signed_body)
+        _notify(sender.id)
 
         return Response({'sent': len(recipients)}, status=status.HTTP_201_CREATED)
 
@@ -987,6 +1027,7 @@ class AdminPermissionsListView(APIView):
             'can_message_leads': e.can_message_leads,
             'can_view_stats': e.can_view_stats,
             'can_edit_tags': e.can_edit_tags,
+            'can_view_report': e.can_view_report,
         } for e in employees]
         return Response(data)
 
@@ -994,7 +1035,7 @@ class AdminPermissionsListView(APIView):
 class AdminPermissionsUpdateView(APIView):
     """Superuser: habilita/deshabilita un permiso granular de un empleado."""
     permission_classes = [IsAuthenticated]
-    ALLOWED_FIELDS = {'can_message_leads', 'can_view_stats', 'can_edit_tags'}
+    ALLOWED_FIELDS = {'can_message_leads', 'can_view_stats', 'can_edit_tags', 'can_view_report'}
 
     def post(self, request, employee_id):
         if not request.user.is_superuser:
@@ -1135,20 +1176,26 @@ class PendingMessagesView(APIView):
 
         messages = (
             ExecutiveMessage.objects
-            .filter(recipient=employee, acknowledged_at__isnull=True)
+            .filter(recipient=employee, dismissed=False)
             .select_related('sender')
             .order_by('sent_at')
         )
-        data = [
-            {
+        today = timezone.localdate()
+        data = []
+        for m in messages:
+            is_own = bool(m.sender_id and m.sender_id == m.recipient_id)
+            # La copia propia ("Enviado") no se confirma ni se borra; solo se ve el día en que se envió.
+            if is_own and timezone.localtime(m.sent_at).date() != today:
+                continue
+            data.append({
                 'id': m.id,
                 'body': m.body,
                 'sent_at': m.sent_at,
                 'sender_name': m.sender.full_name if m.sender else 'skyBot',
                 'day_closed': m.day_closed,
-            }
-            for m in messages
-        ]
+                'is_own': is_own,
+                'acknowledged': m.acknowledged_at is not None,
+            })
         return Response(data)
 
 
@@ -1342,6 +1389,41 @@ class AcknowledgeMessageView(APIView):
         return Response({'ok': True})
 
 
+class DismissMessageView(APIView):
+    """El empleado descarta (oculta) un mensaje con la ✕. Requiere haberlo confirmado antes."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, message_id):
+        try:
+            requester = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        view_as_id = request.query_params.get('view_as')
+        if view_as_id and requester.is_executive:
+            try:
+                employee = Employee.objects.get(id=view_as_id, is_active=True)
+            except Employee.DoesNotExist:
+                return Response({'error': 'Empleado no encontrado'}, status=404)
+        else:
+            employee = requester
+
+        try:
+            message = ExecutiveMessage.objects.get(id=message_id, recipient=employee)
+        except ExecutiveMessage.DoesNotExist:
+            return Response({'error': 'Mensaje no encontrado'}, status=404)
+
+        # No se puede borrar sin confirmar (Listo) primero.
+        if message.acknowledged_at is None:
+            return Response({'error': 'Confirma el mensaje (Listo) antes de borrarlo'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not message.dismissed:
+            message.dismissed = True
+            message.save(update_fields=['dismissed'])
+
+        return Response({'ok': True})
+
+
 class CalendarNotesView(APIView):
     """CRUD de notas globales de calendario (ejecutivos)."""
     permission_classes = [IsAuthenticated]
@@ -1529,7 +1611,7 @@ def reporte_view(request):
 
 
 class ReporteAPIView(APIView):
-    """Datos del reporte de asistencia. Solo ejecutivos."""
+    """Datos del reporte de asistencia. Ejecutivos o usuarios con can_view_report."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -1537,7 +1619,7 @@ class ReporteAPIView(APIView):
             executive = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not executive.is_executive:
+        if not (executive.is_executive or executive.can_view_report):
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
         local_now = _local_now()
@@ -2228,7 +2310,7 @@ class ReporteExportView(APIView):
             executive = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not executive.is_executive:
+        if not (executive.is_executive or executive.can_view_report):
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
         local_now = _local_now()

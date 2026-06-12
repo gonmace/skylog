@@ -127,46 +127,135 @@
   // ─────────────────────────────────────────────────────────────
   //  Employee
   // ─────────────────────────────────────────────────────────────
+  // Toast efímero (elemento creado por JS, auto-removido a los ~3s).
+  function showToast(msg, kind) {
+    const accent = kind === 'error' ? 'var(--color-error)' : 'var(--color-success)';
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(10px);'
+      + 'background:var(--color-base-100);color:var(--color-base-content);'
+      + 'border:1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);'
+      + 'border-left:4px solid ' + accent + ';padding:12px 18px;border-radius:12px;font-size:0.875rem;'
+      + 'box-shadow:0 8px 30px rgba(0,0,0,.25);z-index:9999;opacity:0;transition:opacity .25s,transform .25s;max-width:90vw;';
+    document.body.appendChild(t);
+    requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(0)'; });
+    setTimeout(() => {
+      t.style.opacity = '0'; t.style.transform = 'translateX(-50%) translateY(10px)';
+      setTimeout(() => t.remove(), 300);
+    }, 3000);
+  }
+
   function initLeadsModal() {
     const openBtn  = document.getElementById('emp-btn-leads');
     const modal    = document.getElementById('modal-leads');
     if (!openBtn || !modal) return;
-    const body     = document.getElementById('leads-body');
-    const cbSup    = document.getElementById('leads-target-sup');
-    const cbPm     = document.getElementById('leads-target-pm');
-    const errEl    = document.getElementById('leads-error');
-    const okEl     = document.getElementById('leads-ok');
-    const btnSend  = document.getElementById('leads-send');
-    const btnCancel= document.getElementById('leads-cancel');
+    buildLeadsModal(openBtn, modal);
+  }
+
+  // Lógica común del modal "Mensaje a Sup/PM" (modos: por grupo / personas).
+  function buildLeadsModal(openBtn, modal) {
+    const body      = document.getElementById('leads-body');
+    const cbSup     = document.getElementById('leads-target-sup');
+    const cbPm      = document.getElementById('leads-target-pm');
+    const tabGroup  = document.getElementById('leads-tab-group');
+    const tabPeople = document.getElementById('leads-tab-people');
+    const modeGroup = document.getElementById('leads-mode-group');
+    const modePeople= document.getElementById('leads-mode-people');
+    const peopleList= document.getElementById('leads-people-list');
+    const peopleSearch = document.getElementById('leads-people-search');
+    const errEl     = document.getElementById('leads-error');
+    const okEl      = document.getElementById('leads-ok');
+    const btnSend   = document.getElementById('leads-send');
+    const btnCancel = document.getElementById('leads-cancel');
+    let mode = 'group';
+    let peopleLoaded = false;
+    let people = [];
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+
+    function setMode(m) {
+      mode = m;
+      modeGroup.style.display  = (m === 'group')  ? '' : 'none';
+      modePeople.style.display = (m === 'people') ? '' : 'none';
+      tabGroup.classList.toggle('text-info', m === 'group');
+      tabGroup.classList.toggle('text-base-content/40', m !== 'group');
+      tabPeople.classList.toggle('text-info', m === 'people');
+      tabPeople.classList.toggle('text-base-content/40', m !== 'people');
+      if (m === 'people' && !peopleLoaded) loadPeople();
+    }
+
+    function renderPeople() {
+      const q = (peopleSearch.value || '').trim().toLowerCase();
+      const list = people.filter(p => !q
+        || p.name.toLowerCase().indexOf(q) >= 0
+        || (p.role_label || '').toLowerCase().indexOf(q) >= 0);
+      if (!list.length) {
+        peopleList.innerHTML = '<p class="text-xs text-base-content/40 py-2 text-center">Sin resultados</p>';
+        return;
+      }
+      peopleList.innerHTML = list.map(p => `
+        <label class="flex items-center gap-2 cursor-pointer text-sm py-0.5">
+          <input type="checkbox" class="checkbox checkbox-sm checkbox-info leads-person" value="${p.id}">
+          <span class="flex-1 truncate">${esc(p.name)}</span>
+          <span class="text-xs text-base-content/40 shrink-0">${esc(p.role_label)}</span>
+        </label>`).join('');
+    }
+
+    function loadPeople() {
+      peopleList.innerHTML = '<p class="text-xs text-base-content/40 py-2 text-center">Cargando…</p>';
+      fetch('/api/messages/leads/', { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(data => { people = data || []; peopleLoaded = true; renderPeople(); })
+        .catch(() => { peopleList.innerHTML = '<p class="text-xs text-error py-2 text-center">Error al cargar</p>'; });
+    }
+
+    tabGroup.addEventListener('click', () => setMode('group'));
+    tabPeople.addEventListener('click', () => setMode('people'));
+    peopleSearch.addEventListener('input', renderPeople);
 
     openBtn.addEventListener('click', () => {
       body.value = '';
       cbSup.checked = true; cbPm.checked = true;
+      peopleList.querySelectorAll('.leads-person:checked').forEach(c => { c.checked = false; });
+      peopleSearch.value = '';
+      if (peopleLoaded) renderPeople();
       errEl.classList.add('hidden'); okEl.classList.add('hidden');
       btnSend.disabled = false; btnSend.textContent = 'Enviar';
+      setMode('group');
       modal.showModal();
     });
     btnCancel.addEventListener('click', () => modal.close());
 
     btnSend.addEventListener('click', async () => {
       const text = body.value.trim();
-      const targets = [];
-      if (cbSup.checked) targets.push('supervisor');
-      if (cbPm.checked)  targets.push('project_manager');
       errEl.classList.add('hidden'); okEl.classList.add('hidden');
       if (!text) { errEl.textContent = 'El mensaje no puede estar vacío.'; errEl.classList.remove('hidden'); return; }
-      if (!targets.length) { errEl.textContent = 'Selecciona al menos un destino.'; errEl.classList.remove('hidden'); return; }
+      const payload = { body: text };
+      if (mode === 'people') {
+        const ids = Array.from(peopleList.querySelectorAll('.leads-person:checked')).map(c => parseInt(c.value, 10));
+        if (!ids.length) { errEl.textContent = 'Selecciona al menos una persona.'; errEl.classList.remove('hidden'); return; }
+        payload.recipient_ids = ids;
+      } else {
+        const targets = [];
+        if (cbSup.checked) targets.push('supervisor');
+        if (cbPm.checked)  targets.push('project_manager');
+        if (!targets.length) { errEl.textContent = 'Selecciona al menos un destino.'; errEl.classList.remove('hidden'); return; }
+        payload.targets = targets;
+      }
       btnSend.disabled = true; btnSend.textContent = 'Enviando...';
       try {
         const resp = await fetch('/api/messages/leads/', {
           method: 'POST',
           headers: { ...authHeaders(), 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
-          body: JSON.stringify({ body: text, targets }),
+          body: JSON.stringify(payload),
         });
         const d = await resp.json().catch(() => ({}));
         if (resp.ok) {
-          okEl.textContent = `Mensaje enviado a ${d.sent} destinatario(s).`;
-          okEl.classList.remove('hidden');
+          modal.close();
+          showToast(`Mensaje enviado a ${d.sent} destinatario(s).`);
           body.value = '';
           btnSend.textContent = 'Enviar'; btnSend.disabled = false;
         } else {
@@ -193,6 +282,7 @@
 
     // Botones superiores habilitados por permisos granulares.
     const _showIf = (id, cond) => { const el = document.getElementById(id); if (el && cond) el.style.display = ''; };
+    _showIf('emp-link-report',   profileData.is_superuser || profileData.can_view_report);
     _showIf('emp-link-stats',    profileData.is_superuser || profileData.can_view_stats);
     _showIf('emp-link-tags',     profileData.is_superuser || profileData.can_edit_tags);
     _showIf('emp-btn-leads',     profileData.can_message_leads);
@@ -611,38 +701,69 @@
         const messages = await resp.json();
         const container = document.getElementById('messages-container');
         if (!messages.length) { container.classList.add('hidden'); container.innerHTML = ''; return; }
-        container.innerHTML = messages.map(m => `
-          <div class="message-banner cupertino-card" id="msg-${m.id}">
+        container.innerHTML = messages.map(m => {
+          const own = m.is_own;
+          const nameColor = own ? 'var(--cp-green)' : 'var(--cp-orange)';
+          const nameLabel = own ? 'Enviado a Sup/PM' : m.sender_name;
+          // Propio: indicador "Enviado" no clickeable (dura todo el día).
+          // Recibido sin confirmar: botón "Listo". Recibido confirmado: ✕ para borrar.
+          let action;
+          if (own) {
+            action = `<span class="btn-msg-done" style="border-color:var(--cp-green);color:var(--cp-green);opacity:0.9;cursor:default">Enviado</span>`;
+          } else if (m.acknowledged) {
+            action = `<button class="btn-msg-done btn-dismiss" data-msg-id="${m.id}" title="Borrar" aria-label="Borrar" style="border-color:var(--cp-text-lo);color:var(--cp-text-lo)">✕</button>`;
+          } else {
+            action = `<button class="btn-msg-done btn-acknowledge" data-msg-id="${m.id}"${m.day_closed ? ' style="border-color:var(--cp-red,#ff6b6b);color:var(--cp-red,#ff6b6b)"' : ''}>Listo</button>`;
+          }
+          return `
+          <div class="message-banner cupertino-card" id="msg-${m.id}"${own ? ' style="border-left:3px solid var(--cp-green)"' : ''}>
             <div style="flex:1">
-              <p class="text-xs font-semibold mb-1" style="color:var(--cp-orange)">${m.sender_name}</p>
+              <p class="text-xs font-semibold mb-1" style="color:${nameColor}">${nameLabel}</p>
               <p class="text-sm" style="color:var(--cp-text-hi);white-space:pre-wrap">${m.body}</p>
               <p class="text-xs mt-2 font-medium" style="color:var(--cp-text-mid)">${new Date(m.sent_at).toLocaleString('es-BO')}</p>
             </div>
-            <button class="btn-msg-done btn-acknowledge" data-msg-id="${m.id}"${m.day_closed ? ' style="border-color:var(--cp-red,#ff6b6b);color:var(--cp-red,#ff6b6b)"' : ''}>Listo</button>
-          </div>`).join('');
+            ${action}
+          </div>`;
+        }).join('');
         container.classList.remove('hidden');
       } catch(e) {}
     }
 
     document.getElementById('messages-container').addEventListener('click', async (e) => {
-      const btn = e.target.closest('.btn-acknowledge');
-      if (!btn) return;
-      const msgId = btn.dataset.msgId;
-      btn.disabled = true;
-      try {
-        const resp = await fetch(`/api/messages/${msgId}/acknowledge/`, {
-          method: 'POST',
-          headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
-        });
-        if (resp.ok) {
-          const ghost = document.createElement('button');
-          ghost.className = 'btn-msg-done';
-          ghost.disabled = true;
-          ghost.style.cssText = 'opacity:0.35;cursor:default';
-          ghost.textContent = 'Listo ✓';
-          btn.replaceWith(ghost);
-        } else { btn.disabled = false; }
-      } catch(e) { btn.disabled = false; }
+      const ackBtn = e.target.closest('.btn-acknowledge');
+      const delBtn = e.target.closest('.btn-dismiss');
+
+      // Confirmar (Listo): marca leído y re-renderiza para mostrar la ✕ de borrar.
+      if (ackBtn) {
+        ackBtn.disabled = true;
+        try {
+          const resp = await fetch(`/api/messages/${ackBtn.dataset.msgId}/acknowledge/`, {
+            method: 'POST',
+            headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
+          });
+          if (resp.ok) await loadPendingMessages();
+          else ackBtn.disabled = false;
+        } catch(e) { ackBtn.disabled = false; }
+        return;
+      }
+
+      // Borrar (✕): solo disponible tras confirmar; oculta el mensaje.
+      if (delBtn) {
+        delBtn.disabled = true;
+        try {
+          const resp = await fetch(`/api/messages/${delBtn.dataset.msgId}/dismiss/`, {
+            method: 'POST',
+            headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
+          });
+          if (resp.ok) {
+            const card = document.getElementById('msg-' + delBtn.dataset.msgId);
+            if (card) card.remove();
+            const container = document.getElementById('messages-container');
+            if (container && !container.children.length) container.classList.add('hidden');
+          } else { delBtn.disabled = false; }
+        } catch(e) { delBtn.disabled = false; }
+        return;
+      }
     });
 
     // ── Calendar ────────────────────────────────────────────────
