@@ -288,6 +288,8 @@ function renderCharts(data) {
   // Con empleado seleccionado: ordenar por el valor DEL EMPLEADO (mayor a menor);
   // sin empleado: por producción total de los roles.
   var rcats = data.categories.filter(function(c){
+    // Con empleado seleccionado: solo categorías donde el empleado participó (>0).
+    if (sel) return (sel.categories[c.code] || 0) > 0;
     return c.count > 0 || data.by_role.some(function(r){ return (r.categories[c.code] || 0) > 0; });
   }).sort(function(a, b){
     return sel ? (pctOf(sel, b.code) - pctOf(sel, a.code)) : (roleVol(b.code) - roleVol(a.code));
