@@ -607,6 +607,9 @@ function setGran(g) {
 }
 function buildApiUrl() {
   var qs = ['mode=' + _mode, 'kind=' + document.getElementById('es-sel-kind').value, 'granularity=' + _gran];
+  // Ejecutivo viendo a un empleado (iframe): propagar view_as a la API de stats.
+  var va = new URLSearchParams(window.location.search).get('view_as');
+  if (va) qs.push('view_as=' + encodeURIComponent(va));
   return '/api/mis-estadisticas/?' + qs.join('&');
 }
 

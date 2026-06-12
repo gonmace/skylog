@@ -1934,6 +1934,14 @@ class MisEstadisticasView(APIView):
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
 
+        # Ejecutivo viendo el dashboard de un empleado (iframe view_as).
+        view_as_id = request.query_params.get('view_as')
+        if view_as_id and getattr(employee, 'is_executive', False):
+            try:
+                employee = Employee.objects.get(id=view_as_id, is_active=True)
+            except Employee.DoesNotExist:
+                pass
+
         mode = request.query_params.get('mode', 'all')
         if mode in ('all', 'last'):
             first_dt = last_dt = from_date = to_date = None
