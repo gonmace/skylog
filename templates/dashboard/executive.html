@@ -1,293 +1,347 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Panel ejecutivo — RedLine GS{% endblock %}
+{% block title %}Dashboard Ejecutivo — RedLine GS{% endblock %}
 
 {% block content %}
 <style>
-  .cupertino-page {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-    min-height: 100vh;
-    background: linear-gradient(160deg, var(--cp-bg-start) 0%, var(--cp-bg-end) 100%);
-  }
-  .cupertino-card {
-    background: var(--cp-surface);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid var(--cp-surface-border);
-    border-radius: 16px;
-  }
-  .cupertino-stat-value {
-    font-size: 2rem;
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    line-height: 1;
-  }
-  .cupertino-stat-label {
-    font-size: 0.68rem;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--cp-text-lo);
-    margin-bottom: 6px;
-  }
-  .cupertino-table thead tr { border-bottom: 1px solid var(--cp-divider); }
-  .cupertino-table thead th {
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--cp-text-lo);
-    padding: 10px 16px;
-    text-align: left;
-  }
-  .cupertino-table thead th:first-child { padding-left: 24px; }
-  .cupertino-table tbody tr {
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    transition: background 0.15s ease;
-  }
-  .cupertino-table tbody tr:last-child { border-bottom: none; }
-  .cupertino-table tbody tr:hover { background: rgba(255,255,255,0.04); }
-  .cupertino-table tbody td {
-    padding: 12px 16px;
-    color: var(--cp-text-hi);
-    font-size: 0.875rem;
-  }
-  .cupertino-table tbody td:first-child { padding-left: 24px; }
-  .badge-active {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 3px 10px; border-radius: 20px;
-    font-size: 0.72rem; font-weight: 600;
-    background: color-mix(in srgb, var(--cp-green) 15%, transparent);
-    color: var(--cp-green);
-    border: 1px solid color-mix(in srgb, var(--cp-green) 25%, transparent);
-  }
-  .badge-inactive {
-    display: inline-flex; align-items: center;
-    padding: 3px 10px; border-radius: 20px;
-    font-size: 0.72rem; font-weight: 500;
-    background: rgba(255,255,255,0.05);
-    color: var(--cp-text-dim);
-    border: 1px solid var(--cp-divider);
-  }
-  .agent-online {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 0.78rem; font-weight: 500;
-    color: var(--cp-green);
-  }
-  .agent-offline {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 0.78rem;
-    color: var(--cp-text-dim);
-  }
-  .dot-online {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--cp-green);
-    box-shadow: 0 0 6px color-mix(in srgb, var(--cp-green) 70%, transparent);
-    flex-shrink: 0;
-  }
-  .dot-offline {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: rgba(255,255,255,0.2);
-    flex-shrink: 0;
-  }
-  .btn-capture-ios {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 30px; height: 30px; border-radius: 8px;
-    background: color-mix(in srgb, var(--cp-blue) 15%, transparent);
-    border: 1px solid color-mix(in srgb, var(--cp-blue) 30%, transparent);
-    color: var(--cp-blue);
-    cursor: pointer;
-    transition: background 0.15s, transform 0.1s;
-  }
-  .btn-capture-ios:hover  { background: color-mix(in srgb, var(--cp-blue) 25%, transparent); }
-  .btn-capture-ios:active { transform: scale(0.92); }
-  .btn-capture-ios:disabled { opacity: 0.35; cursor: default; }
-  .avatar-circle {
-    width: 32px; height: 32px; border-radius: 50%;
-    background: color-mix(in srgb, var(--cp-blue) 18%, transparent);
-    color: var(--cp-blue);
-    font-size: 0.72rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-    text-transform: uppercase; flex-shrink: 0; letter-spacing: 0.02em;
-  }
-  .btn-logout-ios {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 32px; height: 32px; border-radius: 8px;
-    background: transparent;
-    border: 1px solid var(--cp-divider-hi);
-    color: var(--cp-text-lo);
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-  }
-  .btn-logout-ios:hover {
-    background: color-mix(in srgb, var(--cp-red) 12%, transparent);
-    color: var(--cp-red);
-    border-color: color-mix(in srgb, var(--cp-red) 25%, transparent);
-  }
-  #last-updated { color: rgba(255,255,255,0.30); font-size: 0.72rem; }
-  .ios-toggle {
-    position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0;
-  }
-  .ios-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
-  .ios-toggle-track {
-    position: absolute; inset: 0; border-radius: 24px;
-    background: rgba(255,255,255,0.12);
-    border: 1px solid var(--cp-divider);
-    cursor: pointer;
-    transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
-  }
-  .ios-toggle input:checked + .ios-toggle-track {
-    background: var(--cp-blue);
-    border-color: var(--cp-blue);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--cp-blue) 35%, transparent);
-  }
-  .ios-toggle.skylog-toggle input:checked + .ios-toggle-track {
-    background: var(--cp-orange);
-    border-color: var(--cp-orange);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--cp-orange) 35%, transparent);
-  }
-  .ios-toggle-track::after {
-    content: ''; position: absolute; left: 3px; top: 3px;
-    width: 16px; height: 16px; border-radius: 50%;
-    background: rgba(255,255,255,0.55);
-    transition: transform 0.25s cubic-bezier(.34,1.4,.64,1), background 0.2s;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.40);
-  }
-  .ios-toggle input:checked + .ios-toggle-track::after {
-    transform: translateX(18px);
-    background: white;
-  }
-  /* Fila deshabilitada */
-  .row-disabled { background: var(--cp-row-disabled); }
-  .row-disabled .row-content { opacity: 0.35; pointer-events: none; }
-  /* Colores de texto para celdas */
-  .cp-text-hi  { color: var(--cp-text-hi); }
-  .cp-text-mid { color: var(--cp-text-mid); }
-  .cp-text-lo  { color: var(--cp-text-lo); }
-  .cp-text-dim { color: var(--cp-text-dim); }
-  .cp-green    { color: var(--cp-green); }
-  .cp-blue     { color: var(--cp-blue); }
-  .cp-orange   { color: var(--cp-orange); }
-  .cp-red      { color: var(--cp-red); }
-  .cp-mono     { font-family: monospace; font-size: 0.72rem; }
-  /* Modales Cupertino */
-  .cp-modal-box {
-    background: var(--cp-modal-bg);
-    border: 1px solid var(--cp-surface-border);
-    border-radius: 20px; padding: 0; max-width: 360px;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-  }
-  .cp-modal-body { padding: 28px 24px 20px; text-align: center; }
-  .cp-modal-icon {
-    width: 52px; height: 52px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;
-  }
-  .cp-modal-icon.blue {
-    background: color-mix(in srgb, var(--cp-blue) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--cp-blue) 22%, transparent);
-  }
-  .cp-modal-icon.orange {
-    background: color-mix(in srgb, var(--cp-orange) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--cp-orange) 22%, transparent);
-  }
-  .cp-modal-title { font-size: 1rem; font-weight: 700; color: var(--cp-text-hi); margin-bottom: 8px; }
-  .cp-modal-text  { font-size: 0.82rem; color: var(--cp-text-lo); line-height: 1.5; }
-  .cp-modal-footer { display: flex; border-top: 1px solid var(--cp-divider); }
-  .cp-modal-btn {
-    flex: 1; padding: 14px; font-size: 0.875rem; background: transparent;
-    border: none; cursor: pointer; transition: background 0.15s; font-family: inherit;
-  }
-  .cp-modal-btn.cancel {
-    font-weight: 500; color: var(--cp-text-mid);
-    border-right: 1px solid var(--cp-divider);
-  }
-  .cp-modal-btn.cancel:hover { background: rgba(255,255,255,0.04); }
-  .cp-modal-btn.confirm-blue  { font-weight: 600; color: var(--cp-blue); }
-  .cp-modal-btn.confirm-blue:hover  { background: color-mix(in srgb, var(--cp-blue) 8%, transparent); }
-  .cp-modal-btn.confirm-orange { font-weight: 600; color: var(--cp-orange); }
-  .cp-modal-btn.confirm-orange:hover { background: color-mix(in srgb, var(--cp-orange) 8%, transparent); }
+  .hidden { display: none !important; }
+
+  /* ── PIN dots (JS: filled / error) ─── */
+  .pin-dot { width:16px;height:16px;border-radius:50%;background:color-mix(in srgb,white 12%,transparent);border:1.5px solid color-mix(in srgb,white 22%,transparent);transition:background .15s,border-color .15s; }
+  .pin-dot.filled { background:var(--cp-blue);border-color:var(--cp-blue); }
+  .pin-dot.error  { background:var(--cp-red);border-color:var(--cp-red); }
+
+  /* ── Toggle switch (JS-generated in renderRow) ─── */
+  .ios-toggle { position:relative;display:inline-block;width:32px;height:18px;flex-shrink:0; }
+  .ios-toggle input { opacity:0;width:0;height:0;position:absolute; }
+  .ios-toggle-track { position:absolute;inset:0;border-radius:18px;background:rgba(255,255,255,0.12);border:1px solid var(--cp-divider);cursor:pointer;transition:background .25s,border-color .25s,box-shadow .25s; }
+  .ios-toggle input:checked + .ios-toggle-track { background:var(--cp-blue);border-color:var(--cp-blue);box-shadow:0 0 8px color-mix(in srgb,var(--cp-blue) 35%,transparent); }
+  .ios-toggle.skylog-toggle input:checked + .ios-toggle-track { background:var(--cp-orange);border-color:var(--cp-orange);box-shadow:0 0 8px color-mix(in srgb,var(--cp-orange) 35%,transparent); }
+  .ios-toggle-track::after { content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,0.55);box-shadow:0 1px 3px rgba(0,0,0,.40);transition:transform .25s cubic-bezier(.34,1.4,.64,1),background .2s; }
+  .ios-toggle input:checked + .ios-toggle-track::after { transform:translateX(14px);background:white; }
+
+  /* ── JS-generated row states ─── */
+  .row-disabled { background:var(--cp-row-disabled); }
+  .row-disabled .row-content { opacity:0.35;pointer-events:none; }
+
+  /* ── JS-generated status badges ─── */
+  .badge-active { display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:600;background:color-mix(in srgb,var(--cp-orange) 15%,transparent);color:var(--cp-orange);border:1px solid color-mix(in srgb,var(--cp-orange) 25%,transparent); }
+  .badge-inactive { display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:500;background:rgba(255,255,255,0.05);color:var(--cp-text-dim);border:1px solid var(--cp-divider); }
+  .agent-online  { display:inline-flex;align-items:center;gap:6px;font-size:0.78rem;font-weight:500;color:var(--cp-green);white-space:nowrap; }
+  .agent-offline { display:inline-flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--cp-red);white-space:nowrap; }
+  .dot-online  { width:7px;height:7px;border-radius:50%;background:var(--cp-green);box-shadow:0 0 6px color-mix(in srgb,var(--cp-green) 70%,transparent);flex-shrink:0; }
+  .dot-offline { width:7px;height:7px;border-radius:50%;background:var(--cp-red);opacity:0.6;flex-shrink:0; }
+
+  /* ── JS-generated action buttons ─── */
+  .btn-capture-ios { display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:color-mix(in srgb,var(--cp-blue) 15%,transparent);border:1px solid color-mix(in srgb,var(--cp-blue) 30%,transparent);color:var(--cp-blue);cursor:pointer;transition:background .15s,transform .1s; }
+  .btn-capture-ios:hover    { background:color-mix(in srgb,var(--cp-blue) 25%,transparent); }
+  .btn-capture-ios:active   { transform:scale(0.92); }
+  .btn-capture-ios:disabled { opacity:0.35;cursor:default; }
+  .btn-capture { background:color-mix(in srgb,var(--color-edit) 15%,transparent) !important;border-color:color-mix(in srgb,var(--color-edit) 30%,transparent) !important;color:var(--color-edit) !important; }
+  .btn-capture:hover { background:color-mix(in srgb,var(--color-edit) 25%,transparent) !important; }
+  .btn-send-msg { display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:color-mix(in srgb,var(--cp-orange) 15%,transparent);border:1px solid color-mix(in srgb,var(--cp-orange) 30%,transparent);color:var(--cp-orange);cursor:pointer;transition:background .15s,transform .1s; }
+  .btn-send-msg:hover  { background:color-mix(in srgb,var(--cp-orange) 25%,transparent); }
+  .btn-send-msg:active { transform:scale(0.92); }
+  .btn-emp-cal-icon { display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:color-mix(in srgb,#a78bfa 15%,transparent);border:1px solid color-mix(in srgb,#a78bfa 30%,transparent);color:#a78bfa;cursor:pointer;transition:background .15s,transform .1s; }
+  .btn-emp-cal-icon:hover  { background:color-mix(in srgb,#a78bfa 25%,transparent); }
+  .btn-emp-cal-icon:active { transform:scale(0.92); }
+  .btn-device-red { display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:color-mix(in srgb,var(--cp-red) 15%,transparent);border:1px solid color-mix(in srgb,var(--cp-red) 30%,transparent);color:var(--cp-red);cursor:pointer;transition:background .15s,transform .1s; }
+  .btn-device-red:hover  { background:color-mix(in srgb,var(--cp-red) 25%,transparent); }
+  .btn-device-red:active { transform:scale(0.92); }
+
+  /* ── JS-generated table content ─── */
+  /* .avatar-circle vive en styles.css (@layer components) */
+  .report-cell { white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default; }
+  #report-tooltip { position:fixed;z-index:9999;pointer-events:none;background:#1c1c1e;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:10px 13px;font-size:0.78rem;color:rgba(255,255,255,0.88);line-height:1.55;max-width:280px;white-space:pre-wrap;word-break:break-word;box-shadow:0 8px 24px rgba(0,0,0,0.5);opacity:0;transition:opacity .15s ease; }
+  #report-tooltip.visible { opacity:1; }
+
+  /* ── Cupertino table (complex layout, JS row generation) ─── */
+  .cupertino-table { table-layout:auto;min-width:max-content;width:100%; }
+  .cupertino-table thead tr { border-bottom:1px solid var(--cp-divider); }
+  .cupertino-table thead th { font-size:0.68rem;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--cp-text-lo);padding:10px 16px;text-align:left;white-space:nowrap;width:1px; }
+  .cupertino-table thead th:first-child { padding-left:24px; }
+  .cupertino-table tbody td:first-child { white-space:normal;max-width:210px; }
+  .cupertino-table thead th:last-child { width:auto;min-width:160px;max-width:260px;white-space:normal; }
+  .cupertino-table thead th:nth-last-child(2),.cupertino-table thead th:nth-last-child(3) { width:auto;min-width:80px;max-width:130px;white-space:normal; }
+  .cupertino-table tbody tr { border-bottom:1px solid rgba(255,255,255,0.05);transition:background .15s ease; }
+  .cupertino-table tbody tr:last-child { border-bottom:none; }
+  .cupertino-table tbody tr:hover { background:rgba(255,255,255,0.04); }
+  .cupertino-table tbody td { padding:12px 16px;color:var(--cp-text-hi);font-size:0.875rem;white-space:nowrap;width:1px; }
+  .cupertino-table tbody td:first-child { padding-left:24px; }
+  .cupertino-table tbody td:last-child { width:auto;min-width:160px;max-width:260px; }
+  .cupertino-table tbody td:nth-last-child(2),.cupertino-table tbody td:nth-last-child(3) { width:auto;min-width:80px;max-width:130px; }
+
+  /* ── Cupertino modal system (complex layout preserved) ─── */
+  .cp-modal-box { background:var(--cp-modal-bg);border:1px solid var(--cp-surface-border);border-radius:20px;padding:0;max-width:360px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif; }
+  .cp-modal-body { padding:28px 24px 20px;text-align:center; }
+  .cp-modal-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px; }
+  .cp-modal-icon.blue   { background:color-mix(in srgb,var(--cp-blue) 12%,transparent);border:1px solid color-mix(in srgb,var(--cp-blue) 22%,transparent); }
+  .cp-modal-icon.orange { background:color-mix(in srgb,var(--cp-orange) 12%,transparent);border:1px solid color-mix(in srgb,var(--cp-orange) 22%,transparent); }
+  .cp-modal-title { font-size:1rem;font-weight:700;color:var(--cp-text-hi);margin-bottom:8px; }
+  .cp-modal-text  { font-size:0.82rem;color:var(--cp-text-lo);line-height:1.5; }
+  .cp-modal-footer { display:flex;border-top:1px solid var(--cp-divider); }
+  .cp-modal-btn { flex:1;padding:14px;font-size:0.875rem;background:transparent;border:none;cursor:pointer;transition:background .15s;font-family:inherit; }
+  .cp-modal-btn.cancel       { font-weight:500;color:var(--cp-text-mid);border-right:1px solid var(--cp-divider); }
+  .cp-modal-btn.cancel:hover { background:rgba(255,255,255,0.04); }
+  .cp-modal-btn.confirm-blue  { font-weight:600;color:var(--cp-blue); }
+  .cp-modal-btn.confirm-blue:hover   { background:color-mix(in srgb,var(--cp-blue) 8%,transparent); }
+  .cp-modal-btn.confirm-orange { font-weight:600;color:var(--cp-orange); }
+  .cp-modal-btn.confirm-orange:hover { background:color-mix(in srgb,var(--cp-orange) 8%,transparent); }
+  .modal-ios .modal-box { background:var(--cp-modal-bg);border:1px solid var(--cp-surface-border);border-radius:20px;padding:0;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif; }
+  .textarea-ios { width:100%;background:color-mix(in srgb,white 6%,transparent);border:1px solid var(--cp-surface-border);border-radius:12px;color:var(--cp-text-hi);font-size:0.875rem;padding:12px 14px;resize:none;height:108px;outline:none;font-family:inherit;transition:border-color .15s; }
+  .textarea-ios::placeholder { color:var(--cp-text-dim); }
+  .textarea-ios:focus { border-color:color-mix(in srgb,var(--cp-blue) 50%,transparent); }
+  .btn-ios-ghost { display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:10px;background:transparent;border:1px solid var(--cp-divider-hi);color:var(--cp-text-mid);font-size:0.8rem;font-weight:500;cursor:pointer;transition:background .15s,color .15s; }
+  .btn-ios-ghost:hover { background:color-mix(in srgb,white 6%,transparent);color:rgba(255,255,255,0.60); }
+  .btn-ios-primary { display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:12px;background:color-mix(in srgb,var(--cp-blue) 18%,transparent);border:1px solid color-mix(in srgb,var(--cp-blue) 30%,transparent);color:var(--cp-blue);font-size:0.875rem;font-weight:600;cursor:pointer;transition:background .15s,transform .1s; }
+  .btn-ios-primary:hover  { background:color-mix(in srgb,var(--cp-blue) 28%,transparent); }
+  .btn-ios-primary:active { transform:scale(0.97); }
+
+  /* ── Calendar (JS-generated grid content) ─── */
+  .cal-grid { display:grid;grid-template-columns:repeat(7,1fr);gap:3px; }
+  .cal-day-header { font-size:0.62rem;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--cp-text-dim);text-align:center;padding:4px 0 6px; }
+  .cal-day { border-radius:9px;min-height:42px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px; }
+  .cal-day-num { font-size:0.78rem;font-weight:500;color:var(--cp-text-lo);line-height:1; }
+  .cal-day-hrs { font-size:0.58rem;font-weight:700;line-height:1;color:var(--cp-green);letter-spacing:0.01em; }
+  .cal-day.empty .cal-day-num { opacity:0.2; }
+  .cal-day.has-work { background:color-mix(in srgb,var(--cp-green) 10%,transparent); }
+  .cal-day.has-work .cal-day-num { color:var(--cp-text-hi); }
+  .cal-day.work-good { background:color-mix(in srgb,var(--cp-green) 18%,transparent); }
+  .cal-day.work-full { background:color-mix(in srgb,var(--cp-green) 28%,transparent); }
+  .cal-day.is-today  { box-shadow:0 0 0 1.5px var(--cp-blue); }
+  .cal-day.is-today .cal-day-num { color:var(--cp-blue);font-weight:700; }
+  .cal-day.active-wd { background:color-mix(in srgb,var(--cp-blue) 12%,transparent); }
+  .cal-day.active-wd .cal-day-hrs { color:var(--cp-blue); }
+  .cal-day.auto-closed-day { box-shadow:inset 0 -2px 0 color-mix(in srgb,var(--cp-yellow) 60%,transparent);cursor:default; }
+  .cal-day.auto-closed-day .cal-day-num { color:var(--cp-red); }
+  .cal-day.leave-vacacion { background:color-mix(in srgb,var(--cp-blue) 18%,transparent); }
+  .cal-day.leave-licencia { background:color-mix(in srgb,var(--cp-orange) 18%,transparent); }
+  .cal-day.leave-permiso  { background:color-mix(in srgb,#a78bfa 18%,transparent); }
+  .cal-day.leave-vacacion .cal-day-num { color:var(--cp-blue);font-weight:700; }
+  .cal-day.leave-licencia .cal-day-num { color:var(--cp-orange);font-weight:700; }
+  .cal-day.leave-permiso  .cal-day-num { color:#a78bfa;font-weight:700; }
+  .cal-day.has-note { position:relative; }
+  .cal-day.has-note::after { content:'';position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;background:var(--cp-yellow); }
+  .cal-day.has-note::before { content:attr(data-note);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(20,20,35,0.97);color:rgba(255,255,255,0.90);font-size:0.7rem;font-weight:500;white-space:nowrap;padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);pointer-events:none;opacity:0;transition:opacity .15s;z-index:50; }
+  .cal-day.has-note:hover::before { opacity:1; }
+  .cal-day.cal-interactive { cursor:pointer; }
+  .cal-day.cal-interactive:hover:not(.leave-vacacion):not(.leave-licencia):not(.leave-permiso) { background:color-mix(in srgb,white 6%,transparent); }
+  .cal-day.cal-sel-start { box-shadow:0 0 0 2px var(--cp-blue); }
+  .cal-day.cal-sel-range { background:color-mix(in srgb,var(--cp-blue) 10%,transparent); }
+  #exec-global-cal .cal-day.cal-interactive { cursor:pointer; }
+  #exec-global-cal .cal-day.cal-interactive:hover { background:color-mix(in srgb,white 6%,transparent); }
+  #exec-global-cal .cal-day.has-note .cal-day-num { color:var(--cp-yellow);font-weight:700; }
 </style>
 
-<div class="cupertino-page">
-<div class="container mx-auto max-w-5xl px-4 py-6">
+<div class="min-h-screen bg-base-200">
 
-  <!-- Header -->
-  <div class="flex items-center justify-between mb-6">
-    <p id="last-updated"></p>
-    <button id="btn-logout" title="Cerrar sesión" class="btn-logout-ios">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-      </svg>
-    </button>
+  <!-- ── Loading ─────────────────────────────────────────── -->
+  <div id="view-loading" class="flex items-center justify-center min-h-screen">
+    <span class="loading loading-spinner loading-md text-info"></span>
   </div>
 
-  <!-- Summary cards -->
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-
-    <div class="cupertino-card px-5 py-4 text-center">
-      <p class="cupertino-stat-label">Activos</p>
-      <p id="stat-active" class="cupertino-stat-value" style="color:#34c759">—</p>
+  <!-- ── PIN lock ───────────────────────────────────────── -->
+  <div id="view-pin" class="hidden flex items-center justify-center min-h-screen p-6">
+    <div class="card bg-base-100 shadow-xl w-full max-w-xs text-center">
+      <div class="card-body items-center gap-5 py-12 px-9">
+        <div class="w-16 h-16 rounded-full bg-info/10 border border-info/20 flex items-center justify-center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--cp-blue)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-lg font-bold tracking-tight">Clave EMI sin extensión</p>
+          <p class="text-sm text-base-content/40 mt-1.5">Ingresa tu clave de 4 dígitos para continuar</p>
+        </div>
+        <div class="flex gap-3.5 justify-center" id="pin-dots">
+          <div class="pin-dot" id="pd0"></div>
+          <div class="pin-dot" id="pd1"></div>
+          <div class="pin-dot" id="pd2"></div>
+          <div class="pin-dot" id="pd3"></div>
+        </div>
+        <div class="grid grid-cols-3 gap-2.5 w-full mb-1">
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="1">1</button>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="2">2</button>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="3">3</button>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="4">4</button>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="5">5</button>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="6">6</button>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="7">7</button>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="8">8</button>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="9">9</button>
+          <div></div>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold" data-digit="0">0</button>
+          <button class="btn btn-ghost border border-base-content/15 h-14 rounded-2xl text-xl font-semibold text-base-content/40" id="pin-del">⌫</button>
+        </div>
+        <p class="text-xs text-error min-h-4" id="pin-error"></p>
+      </div>
     </div>
-
-    <div class="cupertino-card px-5 py-4 text-center">
-      <p class="cupertino-stat-label">Completados hoy</p>
-      <p id="stat-completed" class="cupertino-stat-value" style="color:rgba(255,255,255,0.75)">—</p>
-    </div>
-
-    <div class="cupertino-card px-5 py-4 text-center">
-      <p class="cupertino-stat-label">Agentes online</p>
-      <p id="stat-agents" class="cupertino-stat-value" style="color:#0a84ff">—</p>
-    </div>
-
-    <div class="cupertino-card px-5 py-4 text-center">
-      <p class="cupertino-stat-label">Total usuarios</p>
-      <p id="stat-total" class="cupertino-stat-value" style="color:#ff9f0a">—</p>
-    </div>
-
   </div>
 
-  <!-- Table -->
-  <div class="cupertino-card overflow-hidden">
+  <!-- ── No Access ───────────────────────────────────────── -->
+  <div id="view-noaccess" class="hidden flex items-center justify-center min-h-screen p-6">
+    <div class="card bg-base-100 shadow-xl w-full max-w-sm">
+      <div class="card-body items-center text-center gap-6 py-12">
+        <div class="w-16 h-16 rounded-full bg-warning/10 border border-warning/20 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="var(--cp-orange)" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+          </svg>
+        </div>
+        <p class="text-xl font-bold">Acceso a Skylog deshabilitado</p>
+        <button id="noaccess-btn-logout" class="btn-ghost-tinted btn-sm gap-2 text-error">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+          Cerrar sesión
+        </button>
+      </div>
+    </div>
+  </div>
 
-    <!-- Loading state -->
-    <div id="table-loading" class="flex items-center justify-center py-16 gap-3" style="color:rgba(255,255,255,0.25)">
-      <span class="loading loading-spinner loading-sm"></span>
-      <span class="text-sm">Cargando...</span>
+  <!-- ── Executive ───────────────────────────────────────── -->
+  <div id="view-executive" class="hidden">
+  <div class="w-full px-4 py-6">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-3">
+        <div class="flex flex-col gap-0.5">
+          <p id="exec-last-updated" class="text-xs text-base-content/30"></p>
+          <span id="exec-day-label" class="text-sm font-semibold tracking-wide uppercase text-base-content/80"></span>
+        </div>
+        <div class="flex items-center gap-1 bg-base-100 border border-base-content/10 rounded-xl px-1 py-0.5">
+          <button id="exec-btn-prev" title="Día anterior" class="btn-nav btn-xs btn-square">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <input type="date" id="exec-date-picker" class="bg-transparent border-none text-sm cursor-pointer outline-none px-1 text-base-content/80">
+          <button id="exec-btn-next" title="Día siguiente" class="btn-nav btn-xs btn-square">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+        <button id="exec-btn-today" style="display:none" class="btn-tinted btn-xs text-info">Hoy</button>
+      </div>
+      <div class="flex items-center gap-2.5">
+        <a href="/reporte/" class="btn-tinted btn-sm gap-2 text-info">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/>
+          </svg>
+          Registro Asistencia
+        </a>
+        <a href="/estadisticas/" id="exec-link-stats" style="display:none" class="btn-tinted btn-sm gap-2 text-accent">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6m4 6V5m4 14v-9M5 21h14a1 1 0 001-1V4a1 1 0 00-1-1H5a1 1 0 00-1 1v16a1 1 0 001 1z"/>
+          </svg>
+          Estadísticas
+        </a>
+        <a href="/etiquetas/" id="exec-link-tags" style="display:none" class="btn-tinted btn-sm gap-2 text-info">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5a1.99 1.99 0 011.41.59l7 7a2 2 0 010 2.82l-5.59 5.59a2 2 0 01-2.82 0l-7-7A1.99 1.99 0 013 11V6a3 3 0 013-3z"/>
+          </svg>
+          Proyectos
+        </a>
+        <div id="exec-user-avatar" class="avatar-circle avatar-circle-xs" style="display:none"></div>
+        <button id="exec-btn-logout" title="Cerrar sesión" class="btn-ghost-tinted btn-square btn-sm text-error">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+      <div class="card bg-base-100 shadow px-5 py-4 text-center">
+        <p class="text-xs font-medium tracking-widest uppercase text-base-content/40 mb-1.5">Activos</p>
+        <p id="stat-active" class="text-4xl font-bold tracking-tight leading-none text-success">—</p>
+      </div>
+      <div class="card bg-base-100 shadow px-5 py-4 text-center">
+        <p class="text-xs font-medium tracking-widest uppercase text-base-content/40 mb-1.5">Completados hoy</p>
+        <p id="stat-completed" class="text-4xl font-bold tracking-tight leading-none text-base-content/80">—</p>
+      </div>
+      <div class="card bg-base-100 shadow px-5 py-4 text-center">
+        <p class="text-xs font-medium tracking-widest uppercase text-base-content/40 mb-1.5">Agentes online</p>
+        <p id="stat-agents" class="text-4xl font-bold tracking-tight leading-none text-info">—</p>
+      </div>
+      <div class="card bg-base-100 shadow px-5 py-4 text-center">
+        <p class="text-xs font-medium tracking-widest uppercase text-base-content/40 mb-1.5">Total usuarios</p>
+        <p id="stat-total" class="text-4xl font-bold tracking-tight leading-none text-warning">—</p>
+      </div>
+      <div id="exec-card-stats" class="card bg-base-100 shadow px-5 py-4 text-center">
+        <p class="text-xs font-medium tracking-widest uppercase text-base-content/40 mb-1.5 flex items-center justify-center gap-1">
+          Actividades
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-0 group-hover:opacity-60 transition"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+        </p>
+        <p id="stat-activities" class="text-4xl font-bold tracking-tight leading-none text-accent">—</p>
+      </div>
     </div>
 
     <!-- Table -->
-    <div id="table-container" class="hidden overflow-x-auto">
-      <table class="cupertino-table w-full">
-        <thead>
-          <tr>
-            <th>Usuario</th>
-            <th>Jornada</th>
-            <th>Inicio</th>
-            <th>Duración</th>
-            <th>Intervalo</th>
-            <th>Agente</th>
-            <th style="text-align:center">Screenshots</th>
-            <th style="text-align:center">Skylog</th>
-          </tr>
-        </thead>
-        <tbody id="employee-tbody"></tbody>
-      </table>
+    <div class="card bg-base-100 shadow overflow-hidden">
+
+      <div id="table-loading" class="flex items-center justify-center py-16 gap-3 text-base-content/30">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="text-sm">Cargando...</span>
+      </div>
+
+      <div id="table-container" class="hidden overflow-x-auto">
+        <table class="cupertino-table w-full">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Jornada</th>
+              <th>Inicio</th>
+              <th>Fin</th>
+              <th>Duración</th>
+              <th>Inter.</th>
+              <th>Agente</th>
+              <th style="text-align:center">SS</th>
+              <th style="text-align:center">Skylog</th>
+              <th style="padding:0 8px">Acciones</th>
+              <th>Hizo hoy</th>
+              <th>Planes mañana</th>
+              <th>Mensaje</th>
+            </tr>
+          </thead>
+          <tbody id="employee-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="table-empty" class="hidden flex flex-col items-center justify-center py-16 gap-2 text-base-content/30">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        <p class="text-sm">No hay usuarios registrados</p>
+      </div>
+
     </div>
 
-    <!-- Empty state -->
-    <div id="table-empty" class="hidden flex flex-col items-center justify-center py-16 gap-2" style="color:rgba(255,255,255,0.20)">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
-      </svg>
-      <p class="text-sm">No hay usuarios registrados</p>
+    <!-- Global calendar -->
+    <div id="exec-global-cal" class="card bg-base-100 shadow px-6 py-5 mt-5">
+      <div class="flex items-center justify-between mb-4">
+        <p class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Calendario de equipo</p>
+        <div class="flex items-center gap-2">
+          <button id="exec-cal-prev" title="Mes anterior" class="btn-nav btn-square btn-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <p id="exec-cal-month-label" class="text-sm font-semibold min-w-32 text-center"></p>
+          <button id="exec-cal-next" title="Mes siguiente" class="btn-nav btn-square btn-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="exec-cal-grid" class="cal-grid"></div>
     </div>
 
-  </div>
-</div>
-</div>
+  </div><!-- /container -->
+  </div><!-- /view-executive -->
 
-<!-- Modal advertencia Skylog -->
+</div><!-- /page -->
+
+<!-- ── Modals ───────────────────────────────────────────── -->
+
+<!-- Executive: revocar skylog -->
 <dialog id="modal-skylog-off" class="modal">
   <div class="modal-box cp-modal-box">
     <div class="cp-modal-body">
@@ -307,7 +361,119 @@
   <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
-<!-- Modal advertencia capturas -->
+<!-- Executive: enviar mensaje -->
+<dialog id="modal-send-message" class="modal modal-ios">
+  <div class="modal-box max-w-md">
+    <div class="px-6 pt-6 pb-4" style="border-bottom:1px solid var(--cp-divider)">
+      <h3 class="font-bold text-lg text-base-content/90">Enviar mensaje</h3>
+      <p id="modal-msg-recipient" class="text-sm mt-0.5 text-base-content/40"></p>
+    </div>
+    <div class="px-6 py-5 flex flex-col gap-3">
+      <textarea id="modal-msg-body" class="textarea-ios" rows="4" placeholder="Escribe tu mensaje aquí..."></textarea>
+      <div id="modal-msg-error" class="hidden alert alert-error text-sm py-2">
+        <span id="modal-msg-error-text"></span>
+      </div>
+    </div>
+    <div class="px-6 pb-6 flex justify-end gap-2">
+      <button id="btn-msg-cancel" class="btn-ios-ghost">Cancelar</button>
+      <button id="btn-msg-send" class="btn-ios-primary">Enviar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Executive: calendario de empleado -->
+<dialog id="modal-emp-calendar" class="modal modal-ios">
+  <div class="modal-box cp-modal-box" style="max-width:520px;width:100%">
+    <div class="flex items-center justify-between px-6 pt-5 pb-3">
+      <div>
+        <p id="emp-cal-name" class="text-base font-bold text-base-content/90"></p>
+        <p class="text-xs font-semibold tracking-widest uppercase text-base-content/40 mt-0.5">Horas trabajadas</p>
+      </div>
+      <button id="emp-cal-close" class="btn-nav btn-square btn-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="flex items-center justify-between px-6 pb-3">
+      <button id="emp-cal-prev" title="Mes anterior" class="btn-nav btn-square btn-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <p id="emp-cal-month-label" class="text-sm font-semibold min-w-35 text-center text-base-content/90"></p>
+      <button id="emp-cal-next" title="Mes siguiente" class="btn-nav btn-square btn-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+    <div id="emp-cal-week-stat" style="display:none;margin:0 24px 12px;padding:10px 14px;border-radius:12px;background:color-mix(in srgb,var(--cp-blue) 8%,transparent);border:1px solid color-mix(in srgb,var(--cp-blue) 18%,transparent)">
+      <span style="font-size:0.68rem;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--cp-text-dim)">Total semana actual</span>
+      <div style="margin-top:2px;display:flex;align-items:baseline;gap:6px">
+        <span id="emp-cal-week-total" style="font-size:1.25rem;font-weight:700;letter-spacing:-0.02em;color:var(--cp-blue)"></span>
+        <span id="emp-cal-week-days" style="font-size:0.72rem;color:var(--cp-text-dim)"></span>
+      </div>
+    </div>
+    <div class="px-6 pb-6">
+      <div id="emp-cal-grid" class="cal-grid"></div>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Executive: nota global de calendario -->
+<dialog id="modal-cal-note" class="modal modal-ios">
+  <div class="modal-box cp-modal-box" style="max-width:360px">
+    <div class="cp-modal-body" style="padding-bottom:12px">
+      <p id="cal-note-title" class="text-base font-bold text-base-content/90 mb-4"></p>
+      <select id="cal-note-type" class="select select-bordered w-full text-sm mb-2.5" style="color-scheme:dark">
+        <option value="feriado">Feriado</option>
+        <option value="evento">Evento</option>
+        <option value="otro">Otro</option>
+      </select>
+      <input id="cal-note-text" type="text" placeholder="Descripción (ej: Feriado Nacional)" maxlength="200"
+        class="input input-bordered w-full text-sm" style="color-scheme:dark">
+    </div>
+    <div class="cp-modal-footer">
+      <button id="cal-note-delete" class="cp-modal-btn" style="color:var(--cp-red);display:none;border-right:1px solid var(--cp-divider)">Eliminar</button>
+      <button id="cal-note-cancel" class="cp-modal-btn cancel">Cancelar</button>
+      <button id="cal-note-save" class="cp-modal-btn confirm-blue">Guardar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Executive: ausencia de empleado -->
+<dialog id="modal-leave" class="modal modal-ios">
+  <div class="modal-box cp-modal-box" style="max-width:380px">
+    <div class="cp-modal-body" style="padding-bottom:12px">
+      <p id="leave-modal-title" class="text-base font-bold text-base-content/90 mb-4"></p>
+      <div class="flex flex-col gap-2.5">
+        <select id="leave-type" class="select select-bordered w-full text-sm" style="color-scheme:dark">
+          <option value="vacacion">Vacación</option>
+          <option value="licencia">Licencia</option>
+          <option value="permiso">Permiso</option>
+        </select>
+        <div class="flex gap-2 items-center">
+          <div class="flex-1">
+            <label class="text-xs font-semibold tracking-wide uppercase text-base-content/30 block mb-1">Desde</label>
+            <input id="leave-start" type="date" class="input input-bordered w-full text-sm" style="color-scheme:dark">
+          </div>
+          <div class="flex-1">
+            <label class="text-xs font-semibold tracking-wide uppercase text-base-content/30 block mb-1">Hasta</label>
+            <input id="leave-end" type="date" class="input input-bordered w-full text-sm" style="color-scheme:dark">
+          </div>
+        </div>
+        <input id="leave-note" type="text" placeholder="Nota opcional" maxlength="200"
+          class="input input-bordered w-full text-sm" style="color-scheme:dark">
+      </div>
+    </div>
+    <div class="cp-modal-footer">
+      <button id="leave-delete" class="cp-modal-btn" style="color:var(--cp-red);display:none;border-right:1px solid var(--cp-divider)">Eliminar</button>
+      <button id="leave-cancel" class="cp-modal-btn cancel">Cancelar</button>
+      <button id="leave-save" class="cp-modal-btn confirm-blue">Guardar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Executive: deshabilitar capturas -->
 <dialog id="modal-ss-off" class="modal">
   <div class="modal-box cp-modal-box">
     <div class="cp-modal-body">
@@ -318,9 +484,7 @@
         </svg>
       </div>
       <h3 class="cp-modal-title">Deshabilitar capturas</h3>
-      <p id="modal-ss-off-name" class="cp-modal-text">
-        El agente dejará de enviar capturas de pantalla en el próximo intervalo.
-      </p>
+      <p id="modal-ss-off-name" class="cp-modal-text">El agente dejará de enviar capturas de pantalla en el próximo intervalo.</p>
     </div>
     <div class="cp-modal-footer">
       <button id="btn-ss-cancel" class="cp-modal-btn cancel">Cancelar</button>
@@ -328,6 +492,25 @@
     </div>
   </div>
   <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<div id="report-tooltip"></div>
+
+<!-- Modal: vista de empleado (iframe) -->
+<dialog id="modal-emp-view" class="modal">
+  <div class="modal-box" style="max-width:960px;width:96%;background:var(--cp-bg-end);border:1px solid var(--cp-surface-border);border-radius:20px;padding:0;overflow:hidden">
+    <div class="flex items-center justify-between px-5 py-3.5" style="border-bottom:1px solid var(--cp-divider)">
+      <div class="flex items-center gap-3">
+        <div id="empview-avatar" class="avatar-circle" style="width:36px;height:36px;font-size:0.85rem;flex-shrink:0"></div>
+        <p id="empview-name" class="font-bold text-base text-base-content/90"></p>
+      </div>
+      <form method="dialog">
+        <button class="btn-nav btn-square btn-sm" onclick="document.getElementById('empview-iframe').src=''">✕</button>
+      </form>
+    </div>
+    <iframe id="empview-iframe" src="" style="width:100%;height:82vh;border:none;display:block"></iframe>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button onclick="document.getElementById('empview-iframe').src=''">close</button></form>
 </dialog>
 
 {% endblock %}

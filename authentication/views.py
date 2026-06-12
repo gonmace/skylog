@@ -298,6 +298,7 @@ class MeView(APIView):
             return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
         data = EmployeeSerializer(employee).data
         data['agent_latest_version'] = settings.AGENT_LATEST_VERSION
+        data['is_superuser'] = request.user.is_superuser
         return Response(data)
 
 
@@ -413,16 +414,36 @@ class AgentDownloadView(APIView):
 
 
 class DevLoginView(View):
-    """Login automático para desarrollo local. Solo disponible con DEBUG=True."""
+    """Login automático para desarrollo local. Solo disponible con DEBUG=True.
+
+    - /dev-login/                        → usuario dev ejecutivo sintético (default)
+    - /dev-login/?role=employee          → usuario dev empleado sintético (sin datos)
+    - /dev-login/?pick=1                 → lista de empleados reales (con su cantidad
+                                           de datos) para elegir a quién impersonar
+    - /dev-login/?employee=<id|username> → impersona a ese empleado real (con sus datos)
+    """
 
     def get(self, request):
         if not settings.DEBUG:
             from django.http import Http404
             raise Http404
 
+        # Selector de empleados reales.
+        if request.GET.get('pick'):
+            return self._render_picker(request)
+
+        # Impersonar un empleado real existente (id o nextcloud_username).
+        emp_param = request.GET.get('employee')
+        if emp_param:
+            from django.http import HttpResponseNotFound
+            employee = self._find_employee(emp_param)
+            if employee is None or employee.user_id is None:
+                return HttpResponseNotFound(f'Empleado "{emp_param}" no encontrado o sin usuario asociado.')
+            return self._issue(request, employee.user)
+
+        # Usuario dev sintético por rol (comportamiento original).
         role = request.GET.get('role', 'executive')  # 'executive' | 'employee'
         username = f'dev_{role}'
-
         is_executive = (role == 'executive')
         user, _ = User.objects.get_or_create(username=username, defaults={
             'first_name': 'Dev',
@@ -441,7 +462,6 @@ class DevLoginView(View):
                 'is_active': True,
             },
         )
-        # Sincronizar en caso de que ya existiera con valores distintos
         changed = []
         if employee.is_executive != is_executive:
             employee.is_executive = is_executive; changed.append('is_executive')
@@ -450,10 +470,20 @@ class DevLoginView(View):
         if changed:
             employee.save(update_fields=changed)
 
+        return self._issue(request, user)
+
+    # ── helpers ───────────────────────────────────────────────────────────
+    def _find_employee(self, param):
+        from employees.models import Employee
+        qs = Employee.objects.select_related('user')
+        if str(param).isdigit():
+            return qs.filter(pk=int(param)).first()
+        return qs.filter(nextcloud_username=param).first()
+
+    def _issue(self, request, user):
         refresh = RefreshToken.for_user(user)
         access  = str(refresh.access_token)
         ref     = str(refresh)
-
         return_url = settings.NEXTCLOUD_RETURN_URL or request.build_absolute_uri('/dashboard/')
         response = render(request, 'authentication/oauth2_success.html', {
             'access': access,
@@ -462,6 +492,46 @@ class DevLoginView(View):
         })
         _set_jwt_cookies(response, access, ref)
         return response
+
+    def _render_picker(self, request):
+        from django.db.models import Count
+        from django.http import HttpResponse
+        from employees.models import Employee
+        emps = (Employee.objects
+                .filter(is_active=True)
+                .select_related('user')
+                .annotate(
+                    n_reports=Count('workdays__daily_report', distinct=True),
+                    n_acts=Count('workdays__daily_report__activity_items', distinct=True),
+                )
+                .order_by('-n_acts', '-n_reports', 'full_name'))
+        rows = []
+        for e in emps:
+            rol = 'Ejecutivo' if e.is_executive else 'Empleado'
+            acc = '' if e.skylog_access else ' <span style="color:#e11">(sin skylog)</span>'
+            nouser = '' if e.user_id else ' <span style="color:#e11">(sin user)</span>'
+            disabled = 'pointer-events:none;opacity:.45' if e.user_id is None else ''
+            rows.append(
+                f'<tr><td><a style="{disabled}" href="?employee={e.pk}">{e.full_name}</a>{acc}{nouser}</td>'
+                f'<td>{rol}</td><td style="text-align:right">{e.n_reports}</td>'
+                f'<td style="text-align:right">{e.n_acts}</td></tr>')
+        html = f'''<!doctype html><html><head><meta charset="utf-8"><title>Dev login — impersonar</title>
+<style>
+ body{{font-family:system-ui,sans-serif;background:#0f1115;color:#e5e7eb;max-width:760px;margin:40px auto;padding:0 16px}}
+ h1{{font-size:18px}} p{{color:#9ca3af;font-size:13px}}
+ table{{width:100%;border-collapse:collapse;margin-top:16px;font-size:14px}}
+ th,td{{padding:8px 10px;border-bottom:1px solid #232733;text-align:left}}
+ th{{color:#9ca3af;font-size:12px;text-transform:uppercase;letter-spacing:.05em}}
+ a{{color:#60a5fa;text-decoration:none}} a:hover{{text-decoration:underline}}
+ tr:hover td{{background:#161a22}}
+</style></head><body>
+<h1>Dev login — impersonar empleado</h1>
+<p>Solo desarrollo (DEBUG). Clic en un nombre para loguearte como ese empleado y ver su pantalla.
+Ordenado por cantidad de actividades. También: <a href="?role=executive">Dev ejecutivo</a> · <a href="?role=employee">Dev empleado vacío</a></p>
+<table><thead><tr><th>Empleado</th><th>Rol</th><th>Reportes</th><th>Actividades</th></tr></thead>
+<tbody>{''.join(rows)}</tbody></table>
+</body></html>'''
+        return HttpResponse(html)
 
 
 class MobileLoginView(APIView):
@@ -484,12 +554,23 @@ class MobileLoginView(APIView):
         except Exception:
             return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
 
+        device_id = request.data.get('device_id', '').strip()
+        if employee.solo_movil and device_id:
+            if not employee.mobile_device_id:
+                employee.mobile_device_id = device_id
+                employee.save(update_fields=['mobile_device_id'])
+            elif employee.mobile_device_id != device_id:
+                return Response(
+                    {'error': 'Este usuario ya está vinculado a otro dispositivo. Contacta al administrador.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         refresh = RefreshToken.for_user(user)
         access  = str(refresh.access_token)
         ref     = str(refresh)
 
         response = Response({'status': 'ok', 'access': access, 'refresh': ref,
-                             'solo_movil': employee.solo_movil})
+                             'solo_movil': employee.solo_movil, 'mobile_type': employee.mobile_type})
         _set_jwt_cookies(response, access, ref)
         return response
 

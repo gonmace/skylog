@@ -71,8 +71,69 @@ Single `core/settings.py` — no separate dev/prod files. Behavior adapts via en
 - Dev: `docker-compose.dev.yml` levanta PostgreSQL (puerto `POSTGRES_PORT` expuesto en el host) + n8n en `http://localhost:5678`
 - Prod: n8n usa Docker Compose profile `n8n` — `deploy.sh` lo activa automáticamente si `N8N_DOMAIN` está definido en `.env`
 - Imagen custom con Python 3.12 (`docker/n8n.Dockerfile`), subdominio propio, volumen bind mount `./volumes/n8n`
-- n8n usa la misma instancia de PostgreSQL con una base de datos separada (`n8n`), creada por `docker/init-db.sql`
-- Los workflows se exportan con `make n8n-export` a `n8n/workflows/` y se importan automáticamente en producción al arrancar el contenedor
+- n8n usa la misma instancia de PostgreSQL con una base de datos separada (`n8n`). `docker/init-db.sql` la crea solo al inicializar el contenedor postgres por primera vez; en una BD ya existente hay que crearla a mano (`CREATE DATABASE n8n;`)
+- Los workflows se exportan con `make n8n-export` a `n8n/workflows/`. En producción **no** se importan solos: tras levantar n8n, correr `make n8n-import` (`n8n import:workflow --separate`) y luego `docker compose restart n8n` para activarlos. Las URLs/token con que el workflow llama a Django se leen via `$env` (`DJANGO_INTERNAL_URL`, `INTERNAL_API_TOKEN`), definidas en el servicio n8n del compose
 - `N8N_ENCRYPTION_KEY` debe mantenerse constante en cada entorno — cambiarla invalida las credenciales guardadas
 
 **Production:** Docker Compose + Gunicorn (`entrypoint.sh`) + Nginx. Templates: `nginx.conf` (Django, siempre) + `nginx-n8n.conf` (n8n, solo si `N8N_DOMAIN` está definido), concatenados por `nginx-deploy.sh`. CSS compilado en Dockerfile multi-stage (Node → Python).
+
+## CSS / Styling rules
+
+### Dónde viven los estilos
+- **Todos los estilos reutilizables van en `theme/static_src/src/styles.css`** dentro de `@layer components`.
+- Los templates **no deben tener `<style>` blocks** salvo para clases generadas dinámicamente por JS en tiempo de ejecución (ej. clases que `renderRow()` inyecta en el DOM y que Tailwind no puede escanear en build-time). Esas clases JS-generated deben estar explícitamente comentadas en el `<style>` con `/* JS-generated: usado por renderRow() */`.
+- Nunca usar `style="..."` inline salvo para mostrar/ocultar elementos que JS maneja con `element.style.display` — en ese caso usar `style="display:none"` y NO `class="hidden"` (Tailwind genera `display:none !important` que JS no puede sobreescribir).
+
+### Paleta de tokens
+- Los colores de acento se referencian siempre como tokens DaisyUI (`var(--color-success)`, `var(--color-info)`, etc.) o via variables `--cp-*` que ya apuntan a esos tokens.
+- **No usar colores hex hardcodeados** en estilos de componentes nuevos — usar los tokens del tema.
+- `--cp-green` = `var(--color-success)`, `--cp-blue` = `var(--color-info)`, `--cp-red` = `var(--color-primary)`, `--cp-orange` = `var(--color-error)`, `--cp-yellow` = `var(--color-warning)`, `--cp-purple` = `var(--color-accent)`.
+
+### Patrón de botones translúcidos (`.btn-tinted`)
+El patrón estándar para botones ghost con fondo translúcido persistente es la clase `.btn-tinted` definida en `styles.css`:
+
+```html
+<!-- El color lo controla la clase text-* -->
+<button class="btn-tinted btn-sm gap-1.5 text-success">Exportar Excel</button>
+<button class="btn-tinted btn-sm gap-1.5 text-error">Exportar Certificado</button>
+<button class="btn-tinted btn-sm gap-1.5 text-base-content/60">Imprimir</button>
+<button class="btn-tinted gap-2 text-info">Ver Registro</button>
+```
+
+- Fondo: `color-mix(currentColor 12%, transparent)` en reposo → 22% en hover
+- Borde: `color-mix(currentColor 28%, transparent)` en reposo → 45% en hover
+- **No usar** `btn btn-ghost border border-{color}/30 text-{color} hover:bg-{color}/15` — eso era el patrón anterior, reemplazado por `.btn-tinted`.
+
+### Patrón de botones ghost con tint en hover (`.btn-ghost-tinted`)
+Para botones sin fondo ni borde por defecto que revelan el tint solo al hacer hover (ej. botón cerrar sesión):
+
+```html
+<button class="btn-ghost-tinted btn-square btn-sm text-error">…</button>
+<button class="btn-ghost-tinted btn-sm text-error">Salir</button>
+```
+
+- Default: completamente transparente (sin fondo, sin borde)
+- Hover: fondo 15% + borde 30% del color actual (`currentColor`)
+- Usar cuando el botón es secundario/destructivo y no debe llamar la atención en reposo
+
+### Patrón de botones de navegación (`.btn-nav`)
+Para flechas de calendario y controles de navegación donde el hover es solo un contorno fino sin fondo:
+
+```html
+<button class="btn-nav btn-square btn-sm">…</button>
+<button class="btn-nav btn-square btn-xs">…</button>
+```
+
+- Default: completamente transparente (sin fondo, sin borde)
+- Hover: solo borde fino `base-content/18%`, sin fondo
+- Usar para flechas prev/next de calendarios y controles de paginación
+
+### Visibilidad controlada por JS
+Cuando un elemento es ocultado/mostrado por JS con `element.style.display`:
+```html
+<!-- CORRECTO -->
+<div id="mi-div" style="display:none" class="min-h-screen bg-base-200 ...">
+
+<!-- INCORRECTO — Tailwind genera display:none !important, JS no puede sobreescribir -->
+<div id="mi-div" class="hidden min-h-screen bg-base-200 ...">
+```

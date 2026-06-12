@@ -8,9 +8,14 @@ dev-down:
 dev-logs:
 	docker compose -f docker-compose.dev.yml logs -f
 
-# ── n8n (deshabilitado) ───────────────────────────────────────────────────────
-# n8n-export:
-# 	bash docker/n8n-export.sh
+# ── n8n ───────────────────────────────────────────────────────────────────────
+# Exporta los workflows de n8n dev al repo (para commitear).
+n8n-export:
+	bash docker/n8n-export.sh
+
+# Importa los workflows del repo al n8n levantado (prod). No es automático.
+n8n-import:
+	bash docker/n8n-import.sh
 
 # ── Django local ──────────────────────────────────────────────────────────────
 install:
@@ -20,7 +25,7 @@ install:
 dev:
 	python manage.py migrate
 	python manage.py tailwind start &
-	python manage.py runserver
+	python manage.py runserver 0.0.0.0:8020
 
 tailwind:
 	python manage.py tailwind start
@@ -67,4 +72,4 @@ logs:
 down:
 	docker compose down
 
-.PHONY: dev-up dev-down dev-logs install dev tailwind migrate migrations shell superuser collect deploy nginx logs down agent-install agent-logo agent-build
+.PHONY: dev-up dev-down dev-logs n8n-export n8n-import install dev tailwind migrate migrations shell superuser collect deploy nginx logs down agent-install agent-logo agent-build

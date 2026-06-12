@@ -58,6 +58,9 @@ sed -e "s|{{DOMAIN}}|${DOMAIN}|g" \
     -e "s|{{PROJECT_DIR}}|${PROJECT_DIR}|g" \
     "${TEMPLATE}" > "${PROJECT_NAME}.conf"
 
+# NOTA: el subdominio n8n vive en su PROPIO archivo (skylog-n8n.conf), instalado
+# aparte y gestionado por certbot por separado. NO se anexa a este conf.
+
 echo "▶ Instalando config en nginx..."
 sudo cp "${PROJECT_NAME}.conf" "${NGINX_AVAILABLE}"
 

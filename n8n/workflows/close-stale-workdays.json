@@ -1,0 +1,50 @@
+{
+  "name": "Cerrar jornadas abiertas — 00:00",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron 00:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8020/api/internal/close-stale-workdays/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Token",
+              "value": "1439ea6f6bb4418a9bb585b004867729c0b2d0a4097137c6174e5ea295f9ff03"
+            }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "http-workdays",
+      "name": "Cerrar jornadas abiertas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300]
+    }
+  ],
+  "connections": {
+    "Cron 00:00": {
+      "main": [[{ "node": "Cerrar jornadas abiertas", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" }
+}

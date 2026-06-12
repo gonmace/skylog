@@ -55,10 +55,10 @@
   default: true;
   prefersdark: true;
   color-scheme: dark;
-  --color-base-100: #f4f4f6;
-  --color-base-200: #393939;
-  --color-base-300: #e4e4e8;
-  --color-base-content: #1c1c1e;
+  --color-base-100: #2c2c2e;
+  --color-base-200: #1c1c1e;
+  --color-base-300: #3a3a3c;
+  --color-base-content: rgba(255,255,255,0.88);
   --color-primary: #ff3b30;
   --color-primary-content: #fff;
   --color-secondary: #8e8e93;
@@ -308,29 +308,33 @@
   .bg-delete     { background-color: var(--color-delete); }
   .bg-delete\/10 { background-color: color-mix(in srgb, var(--color-delete) 10%, transparent); }
 
-  /* Avatar colors */
-  .avatar-c-0 { background-color: color-mix(in srgb, #ff0000 15%, white); color: #b91c1c; }
-  .avatar-c-1 { background-color: color-mix(in srgb, #45484d 15%, white); color: #2a2c30; }
-  .avatar-c-2 { background-color: color-mix(in srgb, #0ea5e9 15%, white); color: #0369a1; }
-  .avatar-c-3 { background-color: color-mix(in srgb, #10b981 15%, white); color: #047857; }
-  .avatar-c-4 { background-color: color-mix(in srgb, #f59e0b 15%, white); color: #b45309; }
-  .avatar-c-5 { background-color: color-mix(in srgb, #6366f1 15%, white); color: #4338ca; }
-  .avatar-c-6 { background-color: color-mix(in srgb, #eab308 15%, white); color: #854d0e; }
-  .avatar-c-7 { background-color: color-mix(in srgb, #06b6d4 15%, white); color: #0e7490; }
-  .avatar-c-8 { background-color: color-mix(in srgb, #3b82f6 15%, white); color: #1d4ed8; }
-  .avatar-c-9 { background-color: color-mix(in srgb, #ea580c 15%, white); color: #9a3412; }
+  /* Avatar circle (initials) — color via .avatar-c-N */
+  .avatar-circle { width:32px;height:32px;border-radius:50%;font-size:0.72rem;font-weight:700;display:flex;align-items:center;justify-content:center;text-transform:uppercase;flex-shrink:0;letter-spacing:0.02em; }
+  .avatar-circle-xs { width:22px;height:22px;font-size:0.58rem; }
 
-  /* Avatar colors dark mode */
-  [data-theme="sky-dark"] .avatar-c-0 { background-color: color-mix(in srgb, #ff3b30 25%, #2c2c2e); color: #fca5a5; }
-  [data-theme="sky-dark"] .avatar-c-1 { background-color: color-mix(in srgb, #45484d 25%, #2c2c2e); color: #d1d5db; }
-  [data-theme="sky-dark"] .avatar-c-2 { background-color: color-mix(in srgb, #0ea5e9 25%, #2c2c2e); color: #7dd3fc; }
-  [data-theme="sky-dark"] .avatar-c-3 { background-color: color-mix(in srgb, #10b981 25%, #2c2c2e); color: #6ee7b7; }
-  [data-theme="sky-dark"] .avatar-c-4 { background-color: color-mix(in srgb, #f59e0b 25%, #2c2c2e); color: #fcd34d; }
-  [data-theme="sky-dark"] .avatar-c-5 { background-color: color-mix(in srgb, #6366f1 25%, #2c2c2e); color: #a5b4fc; }
-  [data-theme="sky-dark"] .avatar-c-6 { background-color: color-mix(in srgb, #eab308 25%, #2c2c2e); color: #fde68a; }
-  [data-theme="sky-dark"] .avatar-c-7 { background-color: color-mix(in srgb, #06b6d4 25%, #2c2c2e); color: #67e8f9; }
-  [data-theme="sky-dark"] .avatar-c-8 { background-color: color-mix(in srgb, #3b82f6 25%, #2c2c2e); color: #93c5fd; }
-  [data-theme="sky-dark"] .avatar-c-9 { background-color: color-mix(in srgb, #ea580c 25%, #2c2c2e); color: #fdba74; }
+  /* Avatar colors — light */
+  .avatar-c-0 { background-color: color-mix(in srgb, #ff0000 15%, white); color: #b91c1c; box-shadow: 0 0 0 1.5px color-mix(in srgb, #ff0000 40%, transparent); }
+  .avatar-c-1 { background-color: color-mix(in srgb, #45484d 15%, white); color: #2a2c30; box-shadow: 0 0 0 1.5px color-mix(in srgb, #45484d 40%, transparent); }
+  .avatar-c-2 { background-color: color-mix(in srgb, #0ea5e9 15%, white); color: #0369a1; box-shadow: 0 0 0 1.5px color-mix(in srgb, #0ea5e9 40%, transparent); }
+  .avatar-c-3 { background-color: color-mix(in srgb, #10b981 15%, white); color: #047857; box-shadow: 0 0 0 1.5px color-mix(in srgb, #10b981 40%, transparent); }
+  .avatar-c-4 { background-color: color-mix(in srgb, #f59e0b 15%, white); color: #b45309; box-shadow: 0 0 0 1.5px color-mix(in srgb, #f59e0b 40%, transparent); }
+  .avatar-c-5 { background-color: color-mix(in srgb, #6366f1 15%, white); color: #4338ca; box-shadow: 0 0 0 1.5px color-mix(in srgb, #6366f1 40%, transparent); }
+  .avatar-c-6 { background-color: color-mix(in srgb, #eab308 15%, white); color: #854d0e; box-shadow: 0 0 0 1.5px color-mix(in srgb, #eab308 40%, transparent); }
+  .avatar-c-7 { background-color: color-mix(in srgb, #06b6d4 15%, white); color: #0e7490; box-shadow: 0 0 0 1.5px color-mix(in srgb, #06b6d4 40%, transparent); }
+  .avatar-c-8 { background-color: color-mix(in srgb, #3b82f6 15%, white); color: #1d4ed8; box-shadow: 0 0 0 1.5px color-mix(in srgb, #3b82f6 40%, transparent); }
+  .avatar-c-9 { background-color: color-mix(in srgb, #ea580c 15%, white); color: #9a3412; box-shadow: 0 0 0 1.5px color-mix(in srgb, #ea580c 40%, transparent); }
+
+  /* Avatar colors — dark */
+  [data-theme="sky-dark"] .avatar-c-0 { background-color: color-mix(in srgb, #ff3b30 25%, #2c2c2e); color: #fca5a5; box-shadow: 0 0 0 1.5px color-mix(in srgb, #ff3b30 55%, transparent); }
+  [data-theme="sky-dark"] .avatar-c-1 { background-color: color-mix(in srgb, #45484d 25%, #2c2c2e); color: #d1d5db; box-shadow: 0 0 0 1.5px color-mix(in srgb, #45484d 55%, transparent); }
+  [data-theme="sky-dark"] .avatar-c-2 { background-color: color-mix(in srgb, #0ea5e9 25%, #2c2c2e); color: #7dd3fc; box-shadow: 0 0 0 1.5px color-mix(in srgb, #0ea5e9 55%, transparent); }
+  [data-theme="sky-dark"] .avatar-c-3 { background-color: color-mix(in srgb, #10b981 25%, #2c2c2e); color: #6ee7b7; box-shadow: 0 0 0 1.5px color-mix(in srgb, #10b981 55%, transparent); }
+  [data-theme="sky-dark"] .avatar-c-4 { background-color: color-mix(in srgb, #f59e0b 25%, #2c2c2e); color: #fcd34d; box-shadow: 0 0 0 1.5px color-mix(in srgb, #f59e0b 55%, transparent); }
+  [data-theme="sky-dark"] .avatar-c-5 { background-color: color-mix(in srgb, #6366f1 25%, #2c2c2e); color: #a5b4fc; box-shadow: 0 0 0 1.5px color-mix(in srgb, #6366f1 55%, transparent); }
+  [data-theme="sky-dark"] .avatar-c-6 { background-color: color-mix(in srgb, #eab308 25%, #2c2c2e); color: #fde68a; box-shadow: 0 0 0 1.5px color-mix(in srgb, #eab308 55%, transparent); }
+  [data-theme="sky-dark"] .avatar-c-7 { background-color: color-mix(in srgb, #06b6d4 25%, #2c2c2e); color: #67e8f9; box-shadow: 0 0 0 1.5px color-mix(in srgb, #06b6d4 55%, transparent); }
+  [data-theme="sky-dark"] .avatar-c-8 { background-color: color-mix(in srgb, #3b82f6 25%, #2c2c2e); color: #93c5fd; box-shadow: 0 0 0 1.5px color-mix(in srgb, #3b82f6 55%, transparent); }
+  [data-theme="sky-dark"] .avatar-c-9 { background-color: color-mix(in srgb, #ea580c 25%, #2c2c2e); color: #fdba74; box-shadow: 0 0 0 1.5px color-mix(in srgb, #ea580c 55%, transparent); }
 
   /* Bordes entre filas del componente .table (eliminados en DaisyUI v5) */
   .table tbody tr {
@@ -429,6 +433,46 @@
   [data-theme="sky-dark"] .action-bar {
     background: color-mix(in srgb, var(--color-base-200) 95%, transparent);
     border-top-color: color-mix(in srgb, var(--color-base-300) 80%, transparent);
+  }
+  /* ── btn-tinted: ghost button con fondo translúcido persistente ─────────── */
+  /* Uso: class="btn-tinted btn-sm text-success"  (color via text-*) */
+  .btn-tinted {
+    @apply btn btn-ghost border;
+    background-color: color-mix(in oklch, currentColor 12%, transparent);
+    border-color:     color-mix(in oklch, currentColor 28%, transparent);
+  }
+  .btn-tinted:hover {
+    background-color: color-mix(in oklch, currentColor 22%, transparent);
+    border-color:     color-mix(in oklch, currentColor 45%, transparent);
+  }
+  .btn-tinted:disabled {
+    background-color: color-mix(in oklch, currentColor 6%, transparent);
+    border-color:     color-mix(in oklch, currentColor 12%, transparent);
+    opacity: 0.45;
+  }
+
+  /* ── btn-ghost-tinted: invisible por defecto, tint aparece en hover ───────── */
+  /* Uso: class="btn-ghost-tinted btn-sm text-error"  (color via text-*) */
+  .btn-ghost-tinted {
+    @apply btn btn-ghost;
+    background-color: transparent;
+    border-color:     transparent;
+  }
+  .btn-ghost-tinted:hover {
+    background-color: color-mix(in oklch, currentColor 15%, transparent);
+    border-color:     color-mix(in oklch, currentColor 30%, transparent);
+  }
+
+  /* ── btn-nav: botón de navegación — solo borde fino en hover, sin fondo ──── */
+  /* Uso: class="btn-nav btn-square btn-sm"  (flechas de calendario, etc.) */
+  .btn-nav {
+    @apply btn btn-ghost;
+    background-color: transparent;
+    border-color:     transparent;
+  }
+  .btn-nav:hover {
+    background-color: transparent;
+    border-color:     color-mix(in oklch, var(--color-base-content) 18%, transparent);
   }
   /* ─────────────────────────────────────────────────────────────────────────── */
 }

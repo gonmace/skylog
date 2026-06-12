@@ -1,9 +1,19 @@
 import datetime
+import re
 from django.db import models
 from django.contrib.auth.models import User
 
 
 class Employee(models.Model):
+    ROLE_SUPERVISOR      = 'supervisor'
+    ROLE_PROJECT_MANAGER = 'project_manager'
+    ROLE_OTRO            = 'otro'
+    ROLE_LABELS = {
+        ROLE_SUPERVISOR:      'Supervisores',
+        ROLE_PROJECT_MANAGER: 'Project Managers',
+        ROLE_OTRO:            'Otros',
+    }
+
     CIUDAD_NONE = 'NONE'
     CIUDAD_LPZ  = 'LPZ'
     CIUDAD_CBA  = 'CBA'
@@ -63,10 +73,60 @@ class Employee(models.Model):
         help_text='Si está activo, el empleado no necesita el agente de escritorio. El dashboard estará completamente habilitado sin requerir que el agente esté instalado o activo.',
     )
 
+    MOBILE_TYPE_GPS    = 'gps'
+    MOBILE_TYPE_REPORT = 'report'
+    MOBILE_TYPE_CHOICES = [
+        (MOBILE_TYPE_GPS,    'Solo coordenadas'),
+        (MOBILE_TYPE_REPORT, 'Reporte diario'),
+    ]
+    mobile_type = models.CharField(
+        max_length=10,
+        choices=MOBILE_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='Tipo móvil',
+        help_text='Solo coordenadas: captura GPS al iniciar y finalizar. Reporte diario: debe completar reporte al finalizar.',
+    )
+    mobile_device_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        verbose_name='ID de dispositivo móvil',
+        help_text='Se asigna automáticamente al primer login. Borrar para permitir vincular un nuevo dispositivo.',
+    )
+
     def __str__(self):
         return self.full_name
+
+    @property
+    def role(self):
+        """Rol derivado del cargo: supervisor / project_manager / otro."""
+        from core.textutils import normalize
+        c = normalize(self.cargo)
+        if 'supervisor' in c:
+            return self.ROLE_SUPERVISOR
+        if 'project manager' in c or re.search(r'\bpm\b', c):
+            return self.ROLE_PROJECT_MANAGER
+        return self.ROLE_OTRO
+
+    @property
+    def role_label(self):
+        return self.ROLE_LABELS[self.role]
 
     class Meta:
         ordering = ['full_name']
         verbose_name = 'Empleado'
         verbose_name_plural = 'Empleados'
+
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+
+@receiver(post_save, sender=User)
+def sync_employee_full_name(sender, instance, **kwargs):
+    """full_name se deriva de nombre + apellidos del User (editados en el admin)."""
+    full = f'{instance.first_name} {instance.last_name}'.strip().upper()
+    if not full:
+        return
+    Employee.objects.filter(user=instance).exclude(full_name=full).update(full_name=full)

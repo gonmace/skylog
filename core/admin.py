@@ -27,5 +27,11 @@ admin_site = RedLineAdminSite(name='admin')
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin, GroupAdmin
 
-admin_site.register(User, UserAdmin)
+
+class RedLineUserAdmin(UserAdmin):
+    list_display = ('username', 'email', 'first_name', 'last_name', 'is_staff', 'is_superuser')
+    list_filter = ()
+
+
+admin_site.register(User, RedLineUserAdmin)
 admin_site.register(Group, GroupAdmin)

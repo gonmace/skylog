@@ -14,17 +14,32 @@ class EmployeeAdmin(admin.ModelAdmin):
     list_display = ['item_number', 'full_name', 'nextcloud_username', 'cargo', 'haber_basico', 'ciudad', 'is_active', 'is_executive', 'solo_movil', 'agent_version_badge', 'created_at']
     list_display_links = ['full_name']
     list_editable = ['item_number']
-    list_filter = ['cargo', 'ciudad', 'is_active', 'is_executive', 'solo_movil']
+    list_filter = []
     search_fields = ['full_name', 'nextcloud_username', 'user__email']
     ordering = ['full_name']
-    readonly_fields = ['created_at', 'nextcloud_username', 'agent_version', 'agent_last_seen', 'agent_token']
+    readonly_fields = ['full_name', 'created_at', 'nextcloud_username', 'agent_version', 'agent_last_seen', 'agent_token']
     actions = ['request_capture']
 
     fieldsets = [
-        ('Información', {'fields': ['user', 'nextcloud_username', 'full_name', 'item_number', 'cargo', 'haber_basico', 'ciudad', 'hora_entrada', 'is_active', 'is_executive', 'solo_movil', 'created_at']}),
+        ('Información', {'fields': ['user', 'nextcloud_username', 'full_name', 'item_number', 'cargo', 'haber_basico', 'ciudad', 'hora_entrada', 'is_active', 'is_executive', 'solo_movil', 'mobile_type', 'mobile_device_id', 'created_at']}),
         ('Agente', {'fields': ['agent_version', 'agent_last_seen', 'capture_interval_minutes', 'screenshots_enabled'], 'description': 'Intervalo vacío = usa el global.'}),
         ('Token para agente Windows', {'fields': ['agent_token'], 'classes': ['collapse']}),
     ]
+
+    def save_model(self, request, obj, form, change):
+        if obj.user_id:
+            from django.contrib.auth.models import User
+            try:
+                user = User.objects.get(pk=obj.user_id)
+                if not obj.nextcloud_username:
+                    obj.nextcloud_username = user.username
+                # full_name se deriva de nombre + apellidos del User
+                full = f'{user.first_name} {user.last_name}'.strip().upper()
+                if full:
+                    obj.full_name = full
+            except User.DoesNotExist:
+                pass
+        super().save_model(request, obj, form, change)
 
     @admin.action(description='Solicitar captura inmediata')
     def request_capture(self, request, queryset):

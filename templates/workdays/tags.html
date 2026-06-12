@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Proyectos y Sedes — RedLine GS{% endblock %}
+
+{% block content %}
+<style>
+  .tg-tab { padding:7px 14px;font-size:0.78rem;font-weight:500;color:var(--cp-text-lo);background:transparent;border:none;cursor:pointer;font-family:inherit;transition:background .15s,color .15s;border-radius:8px; }
+  .tg-tab.active { background:color-mix(in srgb,var(--cp-blue) 20%,transparent);color:var(--cp-blue); }
+  .tg-tab:not(.active):hover { background:rgba(255,255,255,0.05);color:var(--cp-text-mid); }
+  .tg-table { width:100%;border-collapse:collapse; }
+  .tg-table thead th { font-size:0.64rem;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--cp-text-lo);padding:10px 14px;text-align:left; }
+  .tg-table tbody td { padding:10px 14px;border-top:1px solid rgba(255,255,255,0.06);font-size:0.875rem;color:var(--cp-text-hi); }
+  .tg-table tbody tr:hover { background:rgba(255,255,255,0.03); }
+  .tg-count { font-variant-numeric:tabular-nums;color:var(--cp-text-mid); }
+  .tg-alias { font-size:0.72rem;color:var(--cp-text-lo); }
+  .tg-alias[title] { cursor:pointer;border-bottom:1px dotted var(--cp-text-lo); }
+  .tg-unmerge { background:none;border:none;color:var(--color-error);cursor:pointer;font-size:0.72rem;padding:0 0 0 3px;line-height:1; }
+  .tg-unmerge:hover { opacity:0.7; }
+  .tg-code { font-family:ui-monospace,monospace;font-size:0.68rem;color:var(--cp-text-lo);background:rgba(255,255,255,0.05);padding:1px 6px;border-radius:5px;margin-left:6px;white-space:nowrap; }
+  .tg-name-link { cursor:pointer;border-bottom:1px dotted transparent; }
+  .tg-name-link:hover { border-bottom-color:var(--cp-text-lo); }
+  .tg-emp-detail { padding:6px 14px 12px !important;display:flex;flex-wrap:wrap;gap:6px; }
+  .tg-emp-chip { font-size:0.74rem;padding:2px 8px;border-radius:99px;background:rgba(255,255,255,0.06);color:var(--cp-text-mid);white-space:nowrap; }
+  .tg-emps { display:flex;flex-wrap:wrap;gap:4px;max-width:560px; }
+  .tg-actions { display:flex;gap:2px;white-space:nowrap; }
+</style>
+
+<!-- Acceso denegado (no ejecutivo) -->
+<div id="tg-denied" style="display:none" class="min-h-screen bg-base-200 flex items-center justify-center p-6">
+  <div class="text-center text-base-content/60">
+    <p class="text-lg font-semibold">Acceso restringido</p>
+    <p class="text-sm mt-1">Esta sección es solo para ejecutivos.</p>
+    <a href="/dashboard/executive/" class="btn-tinted btn-sm mt-4 text-info">Volver al panel</a>
+  </div>
+</div>
+
+<div id="tg-main" style="display:none" class="min-h-screen bg-base-200">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+    <div class="mb-3.5">
+      <a href="/dashboard/executive/" class="text-sm text-base-content/60 hover:text-base-content">← Panel ejecutivo</a>
+    </div>
+    <h1 class="text-xl font-semibold text-base-content">Proyectos y Sedes</h1>
+    <p class="text-sm text-base-content/60 mt-0.5">
+      Etiquetas extraídas de las actividades. Seleccioná las variantes de un mismo
+      proyecto/lugar y <strong>asociálas en una sola</strong> para unificar los reportes.
+    </p>
+
+    <!-- Tabs por tipo -->
+    <div class="mt-5 flex gap-1.5">
+      <button class="tg-tab active" data-kind="project"     onclick="setKind('project')">Proyectos</button>
+      <button class="tg-tab"        data-kind="location"    onclick="setKind('location')">Sedes</button>
+      <button class="tg-tab"        data-kind="deliverable" onclick="setKind('deliverable')">Entregables</button>
+    </div>
+
+    <!-- Barra de fusión (aparece al seleccionar 2+) -->
+    <div id="tg-merge-bar" style="display:none" class="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info/10 p-3">
+      <span id="tg-sel-count" class="text-sm text-base-content/80"></span>
+      <span class="text-sm text-base-content/60">Asociar todo en:</span>
+      <select id="tg-canonical" class="select select-sm select-bordered bg-base-100"></select>
+      <button class="btn-tinted btn-sm text-info" onclick="doMerge()">Asociar en uno</button>
+      <button class="btn-ghost-tinted btn-sm text-base-content/60" onclick="clearSel()">Cancelar</button>
+    </div>
+
+    <!-- Buscador + filtro por empleado -->
+    <div class="mt-4 flex flex-wrap items-center gap-2">
+      <input id="tg-search" type="search" placeholder="Buscar por nombre o código…" oninput="render()"
+             class="input input-sm input-bordered bg-base-100 w-full max-w-xs">
+      <select id="tg-emp-filter" onchange="setEmp(this.value)"
+              class="select select-sm select-bordered bg-base-100">
+        <option value="">Todos los empleados</option>
+      </select>
+    </div>
+
+    <!-- Tabla -->
+    <div class="mt-3 rounded-lg border border-base-content/10 bg-base-100 overflow-hidden">
+      <table class="tg-table">
+        <thead>
+          <tr>
+            <th style="width:34px"></th>
+            <th>Nombre</th>
+            <th style="width:90px">Actividades</th>
+            <th>Empleados</th>
+            <th style="width:90px">Variantes</th>
+            <th style="width:72px"></th>
+          </tr>
+        </thead>
+        <tbody id="tg-rows">
+          <tr><td colspan="6" class="text-center text-base-content/40 py-10">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p id="tg-empty" style="display:none" class="text-center text-base-content/40 py-10 text-sm">
+      Sin etiquetas de este tipo todavía. Se generan cuando corre el clasificador.
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+var _kind = 'project';
+var _tags = [];
+var _sel = new Set();
+var _emp = '';   // filtro por empleado (id) o '' = todos
+
+function setEmp(v) {
+  _emp = v;
+  clearSel();
+  load();
+}
+
+function fillEmpFilter(emps) {
+  var sel = document.getElementById('tg-emp-filter');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Todos los empleados</option>'
+    + (emps || []).map(function (e) {
+        return '<option value="' + e.id + '"'
+          + (String(e.id) === String(_emp) ? ' selected' : '') + '>'
+          + escapeHtml(e.name) + '</option>';
+      }).join('');
+}
+
+function showDenied() {
+  document.getElementById('tg-main').style.display = 'none';
+  document.getElementById('tg-denied').style.display = '';
+}
+
+// fetch con JWT Bearer + refresh único en 401 (mismo patrón que estadísticas).
+function apiFetch(url, opts) {
+  opts = opts || {};
+  var access = localStorage.getItem('access');
+  opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + access });
+  return fetch(url, opts).then(function (res) {
+    if (res.status !== 401) return res;
+    var refresh = localStorage.getItem('refresh');
+    if (!refresh) return res;
+    return fetch('/api/auth/token/refresh/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh: refresh })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.access) return res;
+      localStorage.setItem('access', d.access);
+      opts.headers['Authorization'] = 'Bearer ' + d.access;
+      return fetch(url, opts);
+    });
+  });
+}
+
+function setKind(k) {
+  _kind = k;
+  document.querySelectorAll('.tg-tab').forEach(function (b) {
+    b.classList.toggle('active', b.dataset.kind === k);
+  });
+  var s = document.getElementById('tg-search');
+  if (s) s.value = '';
+  _emp = '';
+  clearSel();
+  load();
+}
+
+function load() {
+  var rows = document.getElementById('tg-rows');
+  rows.innerHTML = '<tr><td colspan="6" class="text-center text-base-content/40 py-10">Cargando…</td></tr>';
+  document.getElementById('tg-empty').style.display = 'none';
+  apiFetch('/api/tags/?kind=' + _kind + (_emp ? '&employee=' + encodeURIComponent(_emp) : ''))
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json();
+    })
+    .then(function (data) {
+      _tags = data.tags || [];
+      fillEmpFilter(data.all_employees);
+      render();
+    })
+    .catch(function (e) { if (e !== 'forbidden') console.error(e); });
+}
+
+function viewTags() {
+  var box = document.getElementById('tg-search');
+  var q = (box && box.value || '').trim().toLowerCase();
+  if (!q) return _tags;
+  return _tags.filter(function (t) {
+    return (t.name || '').toLowerCase().indexOf(q) >= 0
+        || (t.code || '').toLowerCase().indexOf(q) >= 0;
+  });
+}
+
+function render() {
+  var rows = document.getElementById('tg-rows');
+  var empty = document.getElementById('tg-empty');
+  var list = viewTags();
+  if (!list.length) {
+    rows.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  rows.innerHTML = list.map(function (t) {
+    var checked = _sel.has(t.id) ? 'checked' : '';
+    var aliasNames = (t.alias_list || []).map(function (a) { return a.name; }).join(', ');
+    var aliases = t.aliases
+      ? ('<span class="tg-alias" title="' + escapeHtml(aliasNames)
+         + '" onclick="toggleAliases(' + t.id + ')">' + t.aliases + ' alias</span>')
+      : '';
+    var empChips = (t.employees || []).map(function (e) {
+      return '<span class="tg-emp-chip">' + escapeHtml(e.name) + ' · ' + e.count + '</span>';
+    }).join('');
+    return '<tr id="tg-row-' + t.id + '">'
+      + '<td><input type="checkbox" class="checkbox checkbox-sm" ' + checked
+      + ' onchange="toggleSel(' + t.id + ')"></td>'
+      + '<td><span class="tg-name">' + escapeHtml(t.name) + '</span>'
+      + (t.code ? ' <span class="tg-code">' + escapeHtml(t.code) + '</span>' : '') + '</td>'
+      + '<td class="tg-count">' + t.count + '</td>'
+      + '<td class="tg-emps">' + (empChips || '<span class="text-base-content/30">—</span>') + '</td>'
+      + '<td>' + aliases + '</td>'
+      + '<td class="tg-actions">'
+      + '<button class="btn-ghost-tinted btn-xs btn-square" title="Editar nombre" onclick="renameTag(' + t.id + ')">✎</button>'
+      + '<button class="btn-ghost-tinted btn-xs btn-square text-error" title="No es de este tipo — descartar" onclick="ignoreTag(' + t.id + ')">✕</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
+function toggleEmployees(id) {
+  var existing = document.getElementById('tg-emp-' + id);
+  if (existing) { existing.parentNode.removeChild(existing); return; }
+  apiFetch('/api/tags/' + id + '/employees/')
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json();
+    })
+    .then(function (data) {
+      var row = document.getElementById('tg-row-' + id);
+      if (!row) return;
+      var emps = (data.employees || []).map(function (e) {
+        return '<span class="tg-emp-chip">' + escapeHtml(e.name) + ' · ' + e.count + '</span>';
+      }).join('');
+      var tr = document.createElement('tr');
+      tr.id = 'tg-emp-' + id;
+      tr.innerHTML = '<td></td><td colspan="4" class="tg-emp-detail">'
+        + (emps || '<span class="text-base-content/40">Sin empleados</span>') + '</td>';
+      row.parentNode.insertBefore(tr, row.nextSibling);
+    })
+    .catch(function (e) { if (e !== 'forbidden') console.error(e); });
+}
+
+function toggleAliases(id) {
+  var existing = document.getElementById('tg-ali-' + id);
+  if (existing) { existing.parentNode.removeChild(existing); return; }
+  var t = _tags.filter(function (x) { return x.id === id; })[0];
+  if (!t || !(t.alias_list || []).length) return;
+  var row = document.getElementById('tg-row-' + id);
+  if (!row) return;
+  var chips = t.alias_list.map(function (a) {
+    return '<span class="tg-emp-chip">' + escapeHtml(a.name)
+      + ' <button class="tg-unmerge" title="Desagrupar" onclick="unmergeTag(' + a.id + ')">✕</button></span>';
+  }).join('');
+  var tr = document.createElement('tr');
+  tr.id = 'tg-ali-' + id;
+  tr.innerHTML = '<td></td><td colspan="4" class="tg-emp-detail">'
+    + '<span class="text-base-content/40 mr-1">Variantes asociadas:</span>' + chips + '</td>';
+  row.parentNode.insertBefore(tr, row.nextSibling);
+}
+
+function unmergeTag(id) {
+  apiFetch('/api/tags/unmerge/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: [id] })
+  })
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json();
+    })
+    .then(function () { load(); })
+    .catch(function (e) { if (e !== 'forbidden') console.error(e); });
+}
+
+function renameTag(id) {
+  var t = _tags.filter(function (x) { return x.id === id; })[0];
+  var cur = t ? t.name : '';
+  var nv = window.prompt('Nuevo nombre del tag:', cur);
+  if (nv == null) return;
+  nv = nv.trim();
+  if (!nv || nv === cur) return;
+  apiFetch('/api/tags/' + id + '/rename/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: nv })
+  })
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json();
+    })
+    .then(function () { load(); })
+    .catch(function (e) { if (e !== 'forbidden') console.error(e); });
+}
+
+function ignoreTag(id) {
+  var t = _tags.filter(function (x) { return x.id === id; })[0];
+  var name = t ? t.name : '';
+  if (!confirm('¿Descartar "' + name + '"? Dejará de asociarse a actividades y no se regenerará.')) return;
+  apiFetch('/api/tags/ignore/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: [id] })
+  })
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json();
+    })
+    .then(function () { _sel.delete(id); load(); })
+    .catch(function (e) { if (e !== 'forbidden') console.error(e); });
+}
+
+function toggleSel(id) {
+  if (_sel.has(id)) _sel.delete(id); else _sel.add(id);
+  refreshBar();
+}
+
+function clearSel() {
+  _sel.clear();
+  refreshBar();
+  render();
+}
+
+function refreshBar() {
+  var bar = document.getElementById('tg-merge-bar');
+  var n = _sel.size;
+  if (n < 2) { bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  document.getElementById('tg-sel-count').textContent = n + ' seleccionadas.';
+  var sel = document.getElementById('tg-canonical');
+  var chosen = _tags.filter(function (t) { return _sel.has(t.id); });
+  // por defecto, el canónico = el proyecto OFICIAL (con código); si no hay, el de más actividades
+  chosen.sort(function (a, b) {
+    var ac = a.code ? 1 : 0, bc = b.code ? 1 : 0;
+    if (ac !== bc) return bc - ac;
+    return b.count - a.count;
+  });
+  sel.innerHTML = chosen.map(function (t) {
+    var lbl = escapeHtml(t.name) + (t.code ? ' [' + escapeHtml(t.code) + ']' : '') + ' · ' + t.count;
+    return '<option value="' + t.id + '">' + lbl + '</option>';
+  }).join('');
+}
+
+function doMerge() {
+  var into = parseInt(document.getElementById('tg-canonical').value, 10);
+  var from = Array.from(_sel).filter(function (id) { return id !== into; });
+  if (!into || !from.length) return;
+  apiFetch('/api/tags/merge/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ into: into, from: from })
+  })
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json();
+    })
+    .then(function () { clearSel(); load(); })
+    .catch(function (e) { if (e !== 'forbidden') console.error(e); });
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// arranque
+(function () {
+  var access = localStorage.getItem('access');
+  if (!access) { showDenied(); return; }
+  apiFetch('/api/auth/me/')
+    .then(function (res) { return res.json(); })
+    .then(function (me) {
+      if (!me || !me.is_executive) { showDenied(); return; }
+      document.getElementById('tg-main').style.display = '';
+      load();
+    })
+    .catch(function () { showDenied(); });
+})();
+</script>
+{% endblock %}

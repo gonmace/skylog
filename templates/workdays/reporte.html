@@ -5,168 +5,162 @@
 
 {% block content %}
 <style>
-  .rp-page {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-    min-height: 100vh;
-    background: linear-gradient(160deg, var(--cp-bg-start) 0%, var(--cp-bg-end) 100%);
-  }
-  .rp-card {
-    background: var(--cp-surface);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid var(--cp-surface-border);
-    border-radius: 16px;
-  }
-  .rp-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 20px 28px; border-bottom: 1px solid var(--cp-divider);
-    flex-wrap: wrap; gap: 12px;
-  }
-  .rp-title { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em; color: var(--cp-text-hi); }
-  .rp-subtitle { font-size: 0.75rem; color: var(--cp-text-lo); margin-top: 2px; }
-  .rp-filters {
-    padding: 16px 28px; border-bottom: 1px solid var(--cp-divider);
-    display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px;
-  }
-  .rp-filter-group { display: flex; flex-direction: column; gap: 4px; }
-  .rp-filter-label {
-    font-size: 0.65rem; font-weight: 600; letter-spacing: 0.07em;
-    text-transform: uppercase; color: var(--cp-text-lo);
-  }
-  .rp-select, .rp-input {
-    background: rgba(255,255,255,0.07);
-    border: 1px solid var(--cp-surface-border);
-    border-radius: 9px; color: var(--cp-text-hi);
-    font-size: 0.82rem; padding: 7px 11px;
-    font-family: inherit; outline: none;
-    transition: border-color 0.15s, background 0.15s;
-    min-width: 110px;
-  }
-  .rp-select:focus, .rp-input:focus {
-    border-color: var(--cp-blue); background: rgba(255,255,255,0.10);
-  }
-  .rp-select option { background: #2c2c2e; }
-  .rp-mode-tabs {
-    display: flex; gap: 0; border: 1px solid var(--cp-surface-border);
-    border-radius: 9px; overflow: hidden;
-  }
-  .rp-mode-tab {
-    padding: 7px 14px; font-size: 0.78rem; font-weight: 500;
-    color: var(--cp-text-lo); background: transparent;
-    border: none; cursor: pointer; font-family: inherit;
-    transition: background 0.15s, color 0.15s;
-  }
-  .rp-mode-tab.active { background: color-mix(in srgb, var(--cp-blue) 20%, transparent); color: var(--cp-blue); }
-  .rp-mode-tab:not(.active):hover { background: rgba(255,255,255,0.05); color: var(--cp-text-mid); }
-  .rp-btn {
-    display: inline-flex; align-items: center; gap: 7px;
-    padding: 8px 18px; border-radius: 9px;
-    background: color-mix(in srgb, var(--cp-blue) 18%, transparent);
-    border: 1px solid color-mix(in srgb, var(--cp-blue) 30%, transparent);
-    color: var(--cp-blue); font-size: 0.82rem; font-weight: 600;
-    cursor: pointer; font-family: inherit; transition: background 0.15s;
-  }
-  .rp-btn:hover { background: color-mix(in srgb, var(--cp-blue) 28%, transparent); }
-  .rp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .rp-table-wrap { overflow-x: auto; }
-  .rp-table { width: 100%; border-collapse: collapse; white-space: nowrap; }
-  .rp-table thead tr {
-    border-bottom: 1px solid var(--cp-divider);
-    position: sticky; top: 0; z-index: 2;
-    background: var(--cp-surface);
-  }
-  .rp-table thead th {
-    font-size: 0.64rem; font-weight: 600; letter-spacing: 0.07em;
-    text-transform: uppercase; color: var(--cp-text-lo);
-    padding: 10px 14px; text-align: left; vertical-align: bottom;
-  }
-  .rp-table thead th:first-child { padding-left: 24px; }
-  .rp-table thead th.center { text-align: center; }
-  .rp-table tr.emp-sep td {
-    padding: 8px 14px 6px; font-size: 0.72rem; font-weight: 700;
-    letter-spacing: 0.05em; text-transform: uppercase;
-    color: var(--cp-orange);
-    background: color-mix(in srgb, var(--cp-orange) 10%, transparent);
-    border-top: 1px solid color-mix(in srgb, var(--cp-orange) 25%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--cp-orange) 15%, transparent);
-  }
-  .rp-table tr.emp-sep td:first-child { padding-left: 24px; }
-  .rp-table tbody tr.data-row {
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-    transition: background 0.12s;
-  }
-  .rp-table tbody tr.data-row:hover { background: rgba(255,255,255,0.04); }
-  .rp-table tbody td {
-    padding: 11px 14px; color: var(--cp-text-hi); font-size: 0.84rem; vertical-align: middle;
-  }
-  .rp-table tbody td:first-child { padding-left: 24px; }
-  .rp-table tbody td.muted { color: var(--cp-text-lo); }
-  .rp-table tbody td.center { text-align: center; }
-  .rp-table tbody td.mono { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
-  .rp-badge-atraso {
-    display: inline-flex; align-items: center;
-    padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600;
-  }
-  .rp-badge-atraso.none { color: var(--cp-text-dim); }
-  .rp-badge-atraso.warn {
-    background: color-mix(in srgb, var(--cp-orange) 15%, transparent);
-    color: var(--cp-orange);
-    border: 1px solid color-mix(in srgb, var(--cp-orange) 25%, transparent);
-  }
-  .rp-badge-atraso.danger {
-    background: color-mix(in srgb, var(--cp-red) 15%, transparent);
-    color: var(--cp-red);
-    border: 1px solid color-mix(in srgb, var(--cp-red) 25%, transparent);
-  }
-  .rp-state { padding: 64px 28px; text-align: center; color: var(--cp-text-lo); font-size: 0.9rem; }
-  .rp-back { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--cp-text-lo); text-decoration: none; padding: 5px 0; transition: color 0.15s; }
-  .rp-back:hover { color: var(--cp-text-mid); }
-  #rp-denied { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
-  .rp-denied-card { background: var(--cp-surface); border: 1px solid var(--cp-surface-border); border-radius: 20px; padding: 48px 36px; max-width: 380px; width: 100%; text-align: center; }
+  /* ── Mode tab active state (JS-toggled) ─── */
+  .rp-mode-tab { padding:7px 14px;font-size:0.78rem;font-weight:500;color:var(--cp-text-lo);background:transparent;border:none;cursor:pointer;font-family:inherit;transition:background .15s,color .15s; }
+  .rp-mode-tab.active { background:color-mix(in srgb,var(--cp-blue) 20%,transparent);color:var(--cp-blue); }
+  .rp-mode-tab:not(.active):hover { background:rgba(255,255,255,0.05);color:var(--cp-text-mid); }
+
+  /* ── Report table (JS-generated rows: emp-sep, data-row, td variants) ─── */
+  .rp-table { width:100%;border-collapse:collapse;white-space:nowrap; }
+  .rp-table thead tr { border-bottom:1px solid var(--cp-divider);position:sticky;top:0;z-index:2;background:var(--cp-surface); }
+  .rp-table thead th { font-size:0.64rem;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--cp-text-lo);padding:10px 14px;text-align:left;vertical-align:bottom; }
+  .rp-table thead th:first-child { padding-left:24px; }
+  .rp-table thead th.center { text-align:center; }
+  .rp-table tr.emp-sep td { padding:8px 14px 6px;font-size:0.72rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--cp-orange);background:color-mix(in srgb,var(--cp-orange) 10%,transparent);border-top:1px solid color-mix(in srgb,var(--cp-orange) 25%,transparent);border-bottom:1px solid color-mix(in srgb,var(--cp-orange) 15%,transparent); }
+  .rp-table tr.emp-sep td:first-child { padding-left:24px; }
+  .rp-table tbody tr.data-row { border-bottom:1px solid rgba(255,255,255,0.04);transition:background .12s; }
+  .rp-table tbody tr.data-row:hover { background:rgba(255,255,255,0.04); }
+  .rp-table tbody td { padding:11px 14px;color:var(--cp-text-hi);font-size:0.84rem;vertical-align:middle; }
+  .rp-table tbody td:first-child { padding-left:24px; }
+  .rp-table tbody td.muted  { color:var(--cp-text-lo); }
+  .rp-table tbody td.center { text-align:center; }
+  .rp-table tbody td.mono   { font-variant-numeric:tabular-nums;letter-spacing:0.02em; }
+
+  /* ── JS-generated atraso badges ─── */
+  .rp-badge-atraso { display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:0.72rem;font-weight:600; }
+  .rp-badge-atraso.none   { color:var(--cp-text-dim); }
+  .rp-badge-atraso.warn   { background:color-mix(in srgb,var(--cp-orange) 15%,transparent);color:var(--cp-orange);border:1px solid color-mix(in srgb,var(--cp-orange) 25%,transparent); }
+  .rp-badge-atraso.danger { background:color-mix(in srgb,var(--cp-red) 15%,transparent);color:var(--cp-red);border:1px solid color-mix(in srgb,var(--cp-red) 25%,transparent); }
+
+  /* ── JS-generated "no cerró jornada" badge ─── */
+  .rp-badge-nocerro { display:inline-block;margin-left:5px;padding:1px 7px;border-radius:20px;font-size:0.62rem;font-weight:600;background:color-mix(in srgb,var(--cp-red) 15%,transparent);color:var(--cp-red);border:1px solid color-mix(in srgb,var(--cp-red) 28%,transparent);vertical-align:middle; }
+
+  /* ── Print styles ─── */
   @media print {
-    .rp-filters, .rp-back-wrap, #rp-print-btn, #rp-export-btn, #rp-cert-btn { display: none !important; }
-    .rp-page { background: white !important; }
-    .rp-card { box-shadow: none !important; border: 1px solid #ddd !important; background: white !important; }
-    .rp-table thead th { color: #555 !important; }
-    .rp-table tbody td { color: #111 !important; }
+    /* Hide UI chrome */
+    .no-print, #rp-print-btn, #rp-cert-btn, #rp-excel-btn { display:none !important; }
+
+    /* Kill ALL dark backgrounds: strip every background by default, white canvas */
+    html { color-scheme:light !important; }
+    *, *::before, *::after { background:transparent !important; box-shadow:none !important; }
+    html, body { background:#fff !important; }
+
+    /* Allow tinted backgrounds to print only where re-applied below (emp-sep, badges) */
+    .rp-table tr.emp-sep td, .rp-badge-atraso { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+
+    /* Override dark theme variables with print-friendly values */
+    :root, html, [data-theme], [data-theme="sky-dark"] {
+      --color-base-100: #ffffff;
+      --color-base-200: #f8f8f8;
+      --color-base-300: #eeeeee;
+      --color-base-content: #111111;
+      --cp-surface:    #ffffff;
+      --cp-text-hi:    #111111;
+      --cp-text-mid:   #555555;
+      --cp-text-lo:    #777777;
+      --cp-text-dim:   #aaaaaa;
+      --cp-divider:    #e0e0e0;
+      --cp-divider-hi: #cccccc;
+      --cp-orange:     #c2410c;
+      --cp-red:        #dc2626;
+      --cp-blue:       #0369a1;
+      --cp-green:      #059669;
+    }
+
+    /* Page layout */
+    html, body, .min-h-screen, .bg-base-200 { background:#fff !important; color:#111 !important; }
+    .max-w-screen-xl { max-width:100% !important; padding:0 !important; }
+    .px-5 { padding-left:0.4cm !important; padding-right:0.4cm !important; }
+    .py-7 { padding-top:0.2cm !important; padding-bottom:0.2cm !important; }
+
+    /* Card */
+    .card, .card.bg-base-100 { background:#fff !important; box-shadow:none !important; border:1px solid #ddd !important; }
+
+    /* Fix table overflow */
+    .overflow-x-auto { overflow:visible !important; }
+
+    /* Table structure */
+    .rp-table { white-space:normal; font-size:0.75rem; }
+    .rp-table thead tr { position:static !important; background:#fff !important; border-bottom:2px solid #ccc !important; }
+    .rp-table thead th { color:#555 !important; padding:6px 10px !important; font-size:0.62rem; }
+    .rp-table thead th:first-child { padding-left:16px !important; }
+
+    /* Data rows */
+    .rp-table tbody tr.data-row { border-bottom:1px solid #eee !important; background:transparent !important; }
+    .rp-table tbody td { color:#111 !important; padding:7px 10px !important; font-size:0.78rem; }
+    .rp-table tbody td:first-child { padding-left:16px !important; }
+    .rp-table tbody td.muted { color:#777 !important; }
+
+    /* Employee separator row */
+    .rp-table tr.emp-sep td {
+      color:#92400e !important;
+      background:#fffbeb !important;
+      border-top:2px solid #fcd34d !important;
+      border-bottom:1px solid #fde68a !important;
+      padding:5px 16px !important;
+      page-break-after:avoid;
+    }
+
+    /* Delay badges */
+    .rp-badge-atraso.none   { color:#bbb !important; }
+    .rp-badge-atraso.warn   { background:#fff7ed !important; color:#c2410c !important; border-color:#fdba74 !important; }
+    .rp-badge-atraso.danger { background:#fef2f2 !important; color:#dc2626 !important; border-color:#fca5a5 !important; }
+    .rp-badge-nocerro       { background:#fef2f2 !important; color:#dc2626 !important; border-color:#fca5a5 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+
+    /* Footer count */
+    #rp-footer { display:flex !important; border-top:1px solid #e0e0e0 !important; background:#fff !important; }
+    #rp-total  { color:#666 !important; }
+
+    /* Avoid row splits across pages */
+    .rp-table tbody tr { page-break-inside:avoid; }
   }
+
+@keyframes spin { to { transform:rotate(360deg); } }
 </style>
 
 <!-- Access denied (shown by JS if not executive) -->
-<div id="rp-denied" style="display:none;">
-  <div class="rp-denied-card">
-    <div style="font-size:2.5rem; margin-bottom:16px;">🔒</div>
-    <p style="font-size:1rem; font-weight:700; color:var(--cp-text-hi); margin-bottom:8px;">Acceso restringido</p>
-    <p style="font-size:0.82rem; color:var(--cp-text-lo); margin-bottom:24px;">Solo los ejecutivos pueden ver el reporte de asistencia.</p>
-    <a href="/dashboard/" style="color:var(--cp-blue); font-size:0.85rem;">Ir al dashboard</a>
+<div id="rp-denied" style="display:none" class="min-h-screen bg-base-200 flex items-center justify-center p-6">
+  <div class="card bg-base-100 shadow-xl w-full max-w-sm">
+    <div class="card-body items-center text-center gap-5 py-12">
+      <div class="text-5xl">🔒</div>
+      <div>
+        <p class="text-lg font-bold">Acceso restringido</p>
+        <p class="text-sm text-base-content/50 mt-2">Solo los ejecutivos pueden ver el reporte de asistencia.</p>
+      </div>
+      <a href="/dashboard/" class="btn-tinted btn-sm text-info">Ir al dashboard</a>
+    </div>
   </div>
 </div>
 
-<div id="rp-main" class="rp-page" style="display:none;">
-  <div style="max-width: 1400px; margin: 0 auto; padding: 28px 20px;">
-    <div class="rp-back-wrap" style="margin-bottom: 14px;">
-      <a href="/dashboard/" class="rp-back">
+<div id="rp-main" style="display:none" class="min-h-screen bg-base-200">
+  <div class="max-w-screen-xl mx-auto px-5 py-7">
+
+    <!-- Back link -->
+    <div class="no-print mb-3.5">
+      <a href="/dashboard/" class="btn-ghost-tinted btn-xs gap-1.5 text-base-content/40">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
         Dashboard
       </a>
     </div>
 
-    <div class="rp-card">
-      <div class="rp-header">
+    <div class="card bg-base-100 shadow overflow-hidden">
+
+      <!-- Header -->
+      <div class="flex items-center justify-between flex-wrap gap-3 px-7 py-5 border-b border-base-content/10">
         <div>
-          <div class="rp-title">Reporte de Asistencia</div>
-          <div class="rp-subtitle" id="rp-label">Cargando...</div>
+          <p class="text-lg font-bold tracking-tight">Reporte de Asistencia</p>
+          <p id="rp-label" class="text-sm text-base-content/40 mt-0.5">Cargando...</p>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="rp-export-btn" onclick="exportExcel()" class="rp-btn" type="button" disabled style="background:color-mix(in srgb,var(--cp-green) 15%,transparent);border-color:color-mix(in srgb,var(--cp-green) 28%,transparent);color:var(--cp-green);">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <div class="no-print flex gap-2 flex-wrap">
+          <button id="rp-excel-btn" onclick="exportExcel()" class="btn-tinted btn-sm gap-1.5 text-success" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 12 6 6"/><path d="m15 12-6 6"/></svg>
             Exportar Excel
           </button>
-          <button id="rp-cert-btn" onclick="exportCertificado()" class="rp-btn" type="button" style="background:color-mix(in srgb,var(--cp-red) 15%,transparent);border-color:color-mix(in srgb,var(--cp-red) 28%,transparent);color:var(--cp-red);">
+          <button id="rp-cert-btn" onclick="exportCertificado()" style="display:none" class="btn-tinted btn-sm gap-1.5 text-error" type="button">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             Exportar Certificado
           </button>
-          <button id="rp-print-btn" onclick="window.print()" class="rp-btn" type="button" style="background:rgba(255,255,255,0.06); border-color:var(--cp-surface-border); color:var(--cp-text-mid);">
+          <button id="rp-print-btn" onclick="window.print()" class="btn-tinted btn-sm gap-1.5 text-base-content/60" type="button">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             Imprimir
           </button>
@@ -174,57 +168,58 @@
       </div>
 
       <!-- Filtros -->
-      <div class="rp-filters">
-        <div class="rp-filter-group">
-          <span class="rp-filter-label">Modo</span>
-          <div class="rp-mode-tabs">
+      <div class="no-print flex items-end flex-wrap gap-3 px-7 py-4 border-b border-base-content/10">
+        <div class="flex flex-col gap-1">
+          <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Modo</span>
+          <div class="flex border border-base-content/15 rounded-xl overflow-hidden">
             <button type="button" id="tab-month" class="rp-mode-tab active" onclick="setMode('month')">Por mes</button>
             <button type="button" id="tab-range" class="rp-mode-tab" onclick="setMode('range')">Rango</button>
           </div>
         </div>
 
-        <div id="grp-month" class="rp-filter-group">
-          <span class="rp-filter-label">Mes</span>
-          <select id="sel-month" class="rp-select">
+        <div id="grp-month" class="flex flex-col gap-1">
+          <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Mes</span>
+          <select id="sel-month" class="select select-bordered select-sm" style="color-scheme:dark;min-width:110px" onchange="loadReport()">
             {% for num, name in months %}
             <option value="{{ num }}" {% if num == current_month %}selected{% endif %}>{{ name }}</option>
             {% endfor %}
           </select>
         </div>
-        <div id="grp-year" class="rp-filter-group">
-          <span class="rp-filter-label">Año</span>
-          <select id="sel-year" class="rp-select" style="min-width:80px;">
+        <div id="grp-year" class="flex flex-col gap-1">
+          <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Año</span>
+          <select id="sel-year" class="select select-bordered select-sm" style="color-scheme:dark;min-width:80px" onchange="loadReport()">
             {% for y in years %}
             <option value="{{ y }}" {% if y == current_year %}selected{% endif %}>{{ y }}</option>
             {% endfor %}
           </select>
         </div>
 
-        <div id="grp-from" class="rp-filter-group" style="display:none;">
-          <span class="rp-filter-label">Desde</span>
-          <input type="date" id="inp-from" class="rp-input" style="min-width:140px;">
+        <div id="grp-from" style="display:none" class="flex flex-col gap-1">
+          <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Desde</span>
+          <input type="date" id="inp-from" class="input input-bordered input-sm" style="color-scheme:dark;min-width:140px" onchange="loadIfRange()">
         </div>
-        <div id="grp-to" class="rp-filter-group" style="display:none;">
-          <span class="rp-filter-label">Hasta</span>
-          <input type="date" id="inp-to" class="rp-input" style="min-width:140px;">
+        <div id="grp-to" style="display:none" class="flex flex-col gap-1">
+          <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Hasta</span>
+          <input type="date" id="inp-to" class="input input-bordered input-sm" style="color-scheme:dark;min-width:140px" onchange="loadIfRange()">
         </div>
 
-        <div class="rp-filter-group" style="justify-content:flex-end;">
-          <button type="button" id="rp-gen-btn" class="rp-btn" onclick="loadReport()" style="margin-top:auto;">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-            Generar
-          </button>
+        <div id="grp-emp" style="display:none" class="flex flex-col gap-1">
+          <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Empleado</span>
+          <select id="sel-emp" class="select select-bordered select-sm" style="color-scheme:dark;min-width:160px" onchange="applyEmpFilter()">
+            <option value="">Todos</option>
+          </select>
         </div>
+
       </div>
 
       <!-- Tabla -->
-      <div class="rp-table-wrap">
-        <div id="rp-loading" class="rp-state">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 10px;display:block;opacity:.4;animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+      <div class="overflow-x-auto">
+        <div id="rp-loading" class="py-16 text-center text-base-content/40 text-sm">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mx-auto mb-2.5 opacity-40" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
           Cargando...
         </div>
-        <div id="rp-empty" class="rp-state" style="display:none;">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 12px;display:block;opacity:.3;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <div id="rp-empty" style="display:none" class="py-16 text-center text-base-content/30 text-sm">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mx-auto mb-3 opacity-30"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           No hay jornadas para el período seleccionado.
         </div>
         <table class="rp-table" id="rp-table" style="display:none;">
@@ -244,16 +239,14 @@
         </table>
       </div>
 
-      <div id="rp-footer" style="display:none; padding:14px 24px; border-top:1px solid var(--cp-divider); display:flex; justify-content:flex-end;">
-        <span id="rp-total" style="font-size:0.75rem; color:var(--cp-text-lo);"></span>
+      <div id="rp-footer" style="display:none" class="px-6 py-3.5 flex justify-end border-t border-base-content/10">
+        <span id="rp-total" class="text-xs text-base-content/40"></span>
       </div>
+
     </div>
   </div>
 </div>
 
-<style>
-  @keyframes spin { to { transform: rotate(360deg); } }
-</style>
 {% endblock %}
 
 {% block extra_head %}{% endblock %}
@@ -313,11 +306,12 @@ function renderRow(r) {
   var bg = r.is_weekend ? 'background:color-mix(in srgb,var(--cp-blue) 5%,transparent);' : '';
   var opacity = isEmpty ? 'opacity:0.45;' : '';
   var rowStyle = (bg || opacity) ? ' style="' + bg + opacity + '"' : '';
+  var salidaHtml = r.hora_salida + (r.no_cerro ? '<span class="rp-badge-nocerro">no cerró</span>' : '');
   return '<tr class="data-row"' + rowStyle + '>'
     + '<td class="mono">' + r.fecha + '</td>'
     + '<td class="muted">' + r.dia + '</td>'
     + '<td class="center mono">' + r.hora_ingreso + '</td>'
-    + '<td class="center mono">' + r.hora_salida + '</td>'
+    + '<td class="center mono">' + salidaHtml + '</td>'
     + '<td class="center muted">' + (isEmpty ? '' : '1:00') + '</td>'
     + '<td class="center mono">' + r.horas_trabajadas + '</td>'
     + '<td class="center">' + atrasoHtml + '</td>'
@@ -336,6 +330,32 @@ function renderEmpSep(r) {
 }
 
 
+function loadIfRange() {
+  if (document.getElementById('inp-from').value && document.getElementById('inp-to').value) loadReport();
+}
+
+function renderTable(empFilter) {
+  var rows = _reportData;
+  if (!rows) return;
+  var html = '';
+  var count = 0;
+  rows.forEach(function(r) {
+    if (empFilter && r.nombre !== empFilter) return;
+    if (r.is_first_of_employee) html += renderEmpSep(r);
+    html += renderRow(r);
+    count++;
+  });
+  document.getElementById('rp-tbody').innerHTML = html;
+  document.getElementById('rp-table').style.display = count ? '' : 'none';
+  document.getElementById('rp-empty').style.display = count ? 'none' : '';
+  document.getElementById('rp-footer').style.display = count ? 'flex' : 'none';
+  document.getElementById('rp-total').textContent = count + ' registro' + (count !== 1 ? 's' : '') + (empFilter ? ' · ' + empFilter : ' en total');
+}
+
+function applyEmpFilter() {
+  renderTable(document.getElementById('sel-emp').value);
+}
+
 function loadReport() {
   var url = buildApiUrl();
   if (!url) { alert('Completa el rango de fechas.'); return; }
@@ -346,7 +366,6 @@ function loadReport() {
   document.getElementById('rp-empty').style.display   = 'none';
   document.getElementById('rp-table').style.display   = 'none';
   document.getElementById('rp-footer').style.display  = 'none';
-  document.getElementById('rp-gen-btn').disabled = true;
 
   fetch(url, { headers: { 'Authorization': 'Bearer ' + access } })
     .then(function(res) {
@@ -373,77 +392,39 @@ function loadReport() {
       _reportData = data.rows;
       _reportLabel = data.label;
       document.getElementById('rp-loading').style.display = 'none';
-      document.getElementById('rp-gen-btn').disabled = false;
-      document.getElementById('rp-export-btn').disabled = !data.rows || data.rows.length === 0;
       document.getElementById('rp-label').textContent = data.label + ' · ' + data.total + ' registro' + (data.total !== 1 ? 's' : '');
 
       if (!data.rows || data.rows.length === 0) {
         document.getElementById('rp-empty').style.display = '';
+        document.getElementById('grp-emp').style.display = 'none';
         return;
       }
 
-      var html = '';
-      data.rows.forEach(function(r) {
-        if (r.is_first_of_employee) {
-          html += renderEmpSep(r);
-        }
-        html += renderRow(r);
-      });
+      // Poblar selector de empleado
+      var names = [];
+      data.rows.forEach(function(r) { if (r.is_first_of_employee && names.indexOf(r.nombre) === -1) names.push(r.nombre); });
+      var sel = document.getElementById('sel-emp');
+      sel.innerHTML = '<option value="">Todos</option>';
+      names.forEach(function(n) { sel.innerHTML += '<option value="' + n + '">' + n + '</option>'; });
+      document.getElementById('grp-emp').style.display = '';
 
-      document.getElementById('rp-tbody').innerHTML = html;
-      document.getElementById('rp-table').style.display = '';
-      document.getElementById('rp-footer').style.display = 'flex';
-      document.getElementById('rp-total').textContent = data.total + ' registro' + (data.total !== 1 ? 's' : '') + ' en total';
+      renderTable('');
     })
     .catch(function(err) {
       if (err === 'no-refresh' || err === 'refresh-fail' || err === 'forbidden') return;
       document.getElementById('rp-loading').style.display = 'none';
-      document.getElementById('rp-gen-btn').disabled = false;
       document.getElementById('rp-empty').style.display = '';
       document.getElementById('rp-empty').querySelector('svg').nextSibling.textContent = ' Error al cargar los datos.';
     });
 }
 
-function exportExcel() {
+
+function _exportXlsx(endpoint, btnId, prefix, errorLabel) {
   var apiUrl = buildApiUrl();
   if (!apiUrl) { alert('Completa el rango de fechas.'); return; }
-  var exportUrl = apiUrl.replace('/api/reporte/', '/api/reporte/export/');
+  var exportUrl = apiUrl.replace('/api/reporte/', endpoint);
   var access = localStorage.getItem('access');
-  var btn = document.getElementById('rp-export-btn');
-  btn.disabled = true;
-  btn.textContent = 'Generando…';
-  fetch(exportUrl, { headers: { 'Authorization': 'Bearer ' + access } })
-    .then(function(res) {
-      if (!res.ok) throw new Error('Error ' + res.status);
-      return res.blob();
-    })
-    .then(function(blob) {
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'reporte-asistencia-' + _reportLabel.replace(/\s/g, '-').toLowerCase() + '.xlsx';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    })
-    .catch(function(err) { alert('No se pudo exportar: ' + err.message); })
-    .finally(function() {
-      btn.disabled = false;
-      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Exportar Excel';
-    });
-}
-
-function exportCertificado() {
-  var y = document.getElementById('sel-year').value;
-  var m = document.getElementById('sel-month').value;
-  if (_mode === 'range') {
-    var f = document.getElementById('inp-from').value;
-    if (f) {
-      y = f.substring(0, 4);
-      m = String(parseInt(f.substring(5, 7), 10));
-    }
-  }
-  var exportUrl = '/api/reporte/export-certificado/?year=' + y + '&month=' + m;
-  var access = localStorage.getItem('access');
-  var btn = document.getElementById('rp-cert-btn');
+  var btn = document.getElementById(btnId);
   var originalHtml = btn.innerHTML;
   btn.disabled = true;
   btn.textContent = 'Generando…';
@@ -455,20 +436,28 @@ function exportCertificado() {
     .then(function(blob) {
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'certificado-' + y + '-' + String(m).padStart(2, '0') + '.xlsx';
+      a.download = prefix + '-' + _reportLabel.replace(/\s/g, '-').toLowerCase() + '.xlsx';
       a.click();
       URL.revokeObjectURL(a.href);
     })
-    .catch(function(err) { alert('No se pudo exportar el certificado: ' + err.message); })
+    .catch(function(err) { alert('No se pudo exportar ' + errorLabel + ': ' + err.message); })
     .finally(function() {
       btn.disabled = false;
       btn.innerHTML = originalHtml;
     });
 }
 
+function exportExcel() {
+  _exportXlsx('/api/reporte/export/', 'rp-excel-btn', 'reporte-asistencia', 'el reporte');
+}
+
+function exportCertificado() {
+  _exportXlsx('/api/reporte/export-certificado/', 'rp-cert-btn', 'certificado', 'el certificado');
+}
+
 function showDenied() {
   document.getElementById('rp-main').style.display = 'none';
-  document.getElementById('rp-denied').style.display = 'flex';
+  document.getElementById('rp-denied').style.display = '';
 }
 
 // Inicializar
@@ -476,13 +465,13 @@ function showDenied() {
   var access = localStorage.getItem('access');
   if (!access) { window.location.href = '/login/?next=/reporte/'; return; }
 
-  // Verificar que el usuario es ejecutivo antes de mostrar la página
   fetch('/api/auth/me/', { headers: { 'Authorization': 'Bearer ' + access } })
     .then(function(res) { return res.json(); })
     .then(function(me) {
       if (!me.is_executive) { showDenied(); return; }
 
       document.getElementById('rp-main').style.display = '';
+      if (me.is_superuser) document.getElementById('rp-cert-btn').style.display = '';
 
       var now = new Date();
       var y = now.getFullYear();

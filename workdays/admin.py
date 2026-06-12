@@ -1,9 +1,10 @@
 import csv
+from django import forms
 from django.contrib import admin
 from django.http import HttpResponse
 from django.utils.html import format_html
 from core.admin import admin_site
-from .models import Workday, DailyReport, CaptureConfig
+from .models import Workday, DailyReport, CaptureConfig, ExecutiveMessage, ActivityItem, ActivityCategory, ActivityTag
 from screenshots.models import Screenshot
 
 
@@ -100,3 +101,111 @@ class DailyReportAdmin(admin.ModelAdmin):
     list_display = ['workday', 'submitted_at']
     search_fields = ['workday__employee__full_name', 'activities_done', 'activities_planned']
     readonly_fields = ['submitted_at']
+
+
+@admin.register(ActivityCategory, site=admin_site)
+class ActivityCategoryAdmin(admin.ModelAdmin):
+    """Lista de categorías administrable. Las base (is_protected) no se borran ni
+    cambian de código; sí se puede editar label/color/orden/activa, y agregar nuevas."""
+    list_display = ['order', 'code', 'label', 'color', 'color_swatch', 'is_active', 'is_protected']
+    list_display_links = ['code']
+    list_editable = ['label', 'color', 'order', 'is_active']
+    list_filter = ['is_active', 'is_protected']
+    search_fields = ['code', 'label']
+    ordering = ['order', 'label']
+
+    def color_swatch(self, obj):
+        return format_html(
+            '<span style="display:inline-block;width:16px;height:16px;border-radius:4px;'
+            'border:1px solid #ccc;background:{};"></span>', obj.color)
+    color_swatch.short_description = ''
+
+    def has_delete_permission(self, request, obj=None):
+        if obj is not None and obj.is_protected:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_readonly_fields(self, request, obj=None):
+        # No permitir cambiar el código (ni desproteger) de una categoría base.
+        if obj is not None and obj.is_protected:
+            return ['code', 'is_protected']
+        return []
+
+
+@admin.register(ActivityTag, site=admin_site)
+class ActivityTagAdmin(admin.ModelAdmin):
+    """Inspección de tags extraídos por el LLM. La fusión principal se hace desde
+    el dashboard ejecutivo; aquí se puede ver/editar y apuntar `canonical` a mano."""
+    list_display = ['name', 'kind', 'canonical', 'item_count', 'created_at']
+    list_filter = ['kind']
+    search_fields = ['name', 'key']
+    raw_id_fields = ['canonical']
+    readonly_fields = ['key', 'created_at']
+
+    def item_count(self, obj):
+        return obj.items.count()
+    item_count.short_description = 'Ítems'
+
+
+@admin.register(ActivityItem, site=admin_site)
+class ActivityItemAdmin(admin.ModelAdmin):
+    list_display = ['short_text', 'kind', 'category', 'source', 'matched_keyword', 'manual_override', 'employee_name', 'report_date']
+    list_filter = ['category', 'kind', 'source', 'manual_override']
+    list_editable = ['category']
+    search_fields = ['text', 'report__workday__employee__full_name']
+    list_select_related = ['report__workday__employee']
+    readonly_fields = ['matched_keyword', 'classified_at']
+    actions = ['reclassify']
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        # `category` es un CharField (no FK) pero queremos un dropdown desde la tabla.
+        if db_field.name == 'category':
+            choices = [(c.code, str(c)) for c in ActivityCategory.objects.order_by('order', 'label')]
+            return forms.ChoiceField(choices=choices, required=not db_field.blank)
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+    def short_text(self, obj):
+        return obj.text[:70] + '…' if len(obj.text) > 70 else obj.text
+    short_text.short_description = 'Actividad'
+
+    def employee_name(self, obj):
+        return obj.report.workday.employee.full_name
+    employee_name.short_description = 'Empleado'
+
+    def report_date(self, obj):
+        return obj.report.workday.start_time.strftime('%Y-%m-%d')
+    report_date.short_description = 'Fecha'
+
+    def save_model(self, request, obj, form, change):
+        # Editar la categoría a mano la marca como override (el clasificador no la pisa).
+        if change and 'category' in form.changed_data:
+            obj.manual_override = True
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description='Reclasificar (descarta override manual)')
+    def reclassify(self, request, queryset):
+        from .classifier import classify
+        n = 0
+        for item in queryset:
+            cat, kw = classify(item.text)
+            item.category = cat
+            item.matched_keyword = kw
+            item.source = ActivityItem.SOURCE_KEYWORD
+            item.manual_override = False
+            item.save()
+            n += 1
+        self.message_user(request, f'{n} ítems reclasificados.')
+
+
+@admin.register(ExecutiveMessage, site=admin_site)
+class ExecutiveMessageAdmin(admin.ModelAdmin):
+    list_display = ['sent_at', 'sender', 'recipient', 'body_preview', 'acknowledged_at']
+    list_filter = ['sent_at', 'acknowledged_at']
+    search_fields = ['sender__full_name', 'recipient__full_name', 'body']
+    readonly_fields = ['sent_at', 'acknowledged_at']
+    ordering = ['-sent_at']
+    date_hierarchy = 'sent_at'
+
+    def body_preview(self, obj):
+        return obj.body[:80] + '…' if len(obj.body) > 80 else obj.body
+    body_preview.short_description = 'Mensaje'

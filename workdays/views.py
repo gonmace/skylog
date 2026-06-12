@@ -1,5 +1,6 @@
 import calendar as _cal
 import io
+import logging
 import os
 from datetime import timedelta, datetime as _datetime, time as _time, date as _date
 from django.conf import settings
@@ -11,9 +12,12 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from core.permissions import IsInternalRequest
 from employees.models import Employee
 from authentication.serializers import AGENT_ACTIVE_THRESHOLD_MINUTES
-from .models import Workday, DailyReport, CaptureConfig, InactivityPeriod, ExecutiveMessage, CalendarNote, EmployeeLeave
+from .models import Workday, DailyReport, CaptureConfig, InactivityPeriod, ExecutiveMessage, CalendarNote, EmployeeLeave, ActivityItem
+
+logger = logging.getLogger(__name__)
 
 
 class WorkdayStartView(APIView):
@@ -33,6 +37,12 @@ class WorkdayStartView(APIView):
 
         lat = request.data.get('latitude')
         lng = request.data.get('longitude')
+
+        if employee.mobile_type == Employee.MOBILE_TYPE_GPS and (not lat or not lng):
+            return Response(
+                {'error': 'La ubicación es requerida para iniciar la jornada', 'location_required': True},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         workday = Workday.objects.create(
             employee=employee,
@@ -66,9 +76,15 @@ class WorkdayEndView(APIView):
         if not workday_id:
             return Response({'error': 'workday_id es requerido'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if employee.solo_movil and (not lat or not lng):
+        mobile_type = employee.mobile_type
+        if mobile_type == Employee.MOBILE_TYPE_GPS and (not lat or not lng):
             return Response(
                 {'error': 'La ubicación es requerida para finalizar la jornada', 'location_required': True},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if mobile_type == Employee.MOBILE_TYPE_REPORT and (not activities_done or not activities_planned):
+            return Response(
+                {'error': 'Debes completar el reporte diario antes de finalizar', 'report_required': True},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -100,11 +116,20 @@ class WorkdayEndView(APIView):
         except Exception:
             pass
 
-        DailyReport.objects.create(
+        report = DailyReport.objects.create(
             workday=workday,
             activities_done=activities_done,
             activities_planned=activities_planned,
         )
+
+        # Clasificar actividades en categorías (nunca bloquear el fin de jornada).
+        # Se omite el almacén (rol "otro"): las estadísticas son solo Supervisores vs PMs.
+        if employee.role != Employee.ROLE_OTRO:
+            try:
+                from .classifier import sync_report_items
+                sync_report_items(report)
+            except Exception:
+                logger.exception('Fallo clasificando reporte %s', report.id)
 
         return Response({
             'workday_id': workday.id,
@@ -137,7 +162,8 @@ class ActiveWorkdayView(APIView):
         gap_threshold = timedelta(minutes=effective_interval * 1.5)
         if prev_seen and (now - prev_seen) > gap_threshold:
             try:
-                active_workday = Workday.objects.get(employee=employee, status=Workday.STATUS_IN_PROGRESS)
+                active_workday = Workday.objects.filter(employee=employee, status=Workday.STATUS_IN_PROGRESS).order_by('-start_time').first()
+                if not active_workday: raise Workday.DoesNotExist
                 gap_minutes = int((now - prev_seen).total_seconds() // 60)
                 InactivityPeriod.objects.create(
                     workday=active_workday,
@@ -160,7 +186,8 @@ class ActiveWorkdayView(APIView):
         screenshots_enabled = employee.screenshots_enabled
 
         try:
-            workday = Workday.objects.get(employee=employee, status=Workday.STATUS_IN_PROGRESS)
+            workday = Workday.objects.filter(employee=employee, status=Workday.STATUS_IN_PROGRESS).order_by('-start_time').first()
+            if not workday: raise Workday.DoesNotExist
             inactive_minutes = InactivityPeriod.objects.filter(workday=workday).aggregate(
                 total=models.Sum('duration_minutes')
             )['total'] or 0
@@ -192,13 +219,381 @@ def _month_range(year, month):
     return first, last
 
 
+class CloseStaleWorkdaysView(APIView):
+    """Endpoint interno para n8n: cierra jornadas abiertas del día (corre a las 23:59)."""
+    permission_classes = [IsInternalRequest]
+
+    def post(self, request):
+        closed = _close_stale_workdays()
+        return Response({'closed': closed})
+
+
+class CloseDayMessagesView(APIView):
+    """Endpoint interno para n8n: marca mensajes no leídos del día ANTERIOR con day_closed
+    (corre a las 00:01 del día siguiente)."""
+    permission_classes = [IsInternalRequest]
+
+    def post(self, request):
+        target = _local_now().date() - timedelta(days=1)
+        day_start = timezone.make_aware(_datetime.combine(target, _time(0, 0)))
+        day_end   = timezone.make_aware(_datetime.combine(target, _time(23, 59, 59)))
+        flagged = ExecutiveMessage.objects.filter(
+            acknowledged_at__isnull=True,
+            day_closed=False,
+            sent_at__range=(day_start, day_end),
+        ).update(day_closed=True)
+        return Response({'flagged': flagged})
+
+
+class DoneActivitiesView(APIView):
+    """Endpoint interno para n8n (cron 00:05): devuelve las actividades 'done' de una
+    fecha (default: día ANTERIOR), agrupadas por empleado, junto con la lista DINÁMICA
+    de categorías activas para que n8n arme el prompt del LLM.
+
+    `?date=YYYY-MM-DD` permite elegir la fecha (para pruebas). Solo ítems sin
+    `manual_override` (los manuales no se tocan)."""
+    permission_classes = [IsInternalRequest]
+
+    def get(self, request):
+        from .models import ActivityCategory, ActivityTag
+
+        date_param = request.query_params.get('date', '')
+        target = _local_now().date() - timedelta(days=1)
+        if date_param:
+            try:
+                target = _date.fromisoformat(date_param)
+            except ValueError:
+                pass
+        day_start = timezone.make_aware(_datetime.combine(target, _time(0, 0)))
+        day_end   = timezone.make_aware(_datetime.combine(target, _time(23, 59, 59)))
+
+        # Solo Supervisores y Project Managers: el LLM nunca clasifica a otros roles
+        # (almacén/administrativos), que además quedan fuera de las estadísticas.
+        # `role` se deriva de `cargo` en Python, así que se resuelven los IDs elegibles.
+        eligible_ids = [
+            e.id for e in Employee.objects.filter(is_active=True, is_executive=False)
+            if e.role in (Employee.ROLE_SUPERVISOR, Employee.ROLE_PROJECT_MANAGER)]
+        items = (ActivityItem.objects
+                 .filter(kind=ActivityItem.KIND_DONE, manual_override=False,
+                         report__workday__employee_id__in=eligible_ids,
+                         report__workday__start_time__range=(day_start, day_end))
+                 .select_related('report__workday__employee')
+                 .order_by('report__workday__employee_id', 'position'))
+
+        by_emp = {}
+        for it in items:
+            emp = it.report.workday.employee
+            bucket = by_emp.setdefault(emp.id, {
+                'employee_id': emp.id, 'employee_name': emp.full_name, 'items': []})
+            bucket['items'].append({
+                'id': it.id, 'text': it.text, 'fallback_category': it.category})
+
+        categories = [
+            {'code': c.code, 'label': c.label}
+            for c in ActivityCategory.objects.filter(is_active=True).order_by('order', 'label')
+        ]
+        # Tags canónicos existentes (proyecto/ubicación) para que el LLM reutilice
+        # nombres. Proyectos: oficiales (con código) primero. Cap acotado para no
+        # inflar el prompt (se repite por cada ítem → ejecuciones grandes en n8n).
+        known_tags = {
+            ActivityTag.KIND_PROJECT: list(
+                ActivityTag.objects.filter(kind=ActivityTag.KIND_PROJECT,
+                                           canonical__isnull=True, ignored=False)
+                .order_by('-code', 'name').values_list('name', flat=True)[:80]),
+            ActivityTag.KIND_LOCATION: list(
+                ActivityTag.objects.filter(kind=ActivityTag.KIND_LOCATION,
+                                           canonical__isnull=True, ignored=False)
+                .order_by('name').values_list('name', flat=True)[:40]),
+        }
+        return Response({
+            'date': target.isoformat(),
+            'categories': categories,
+            'known_tags': known_tags,
+            'employees': list(by_emp.values()),
+        })
+
+
+class ClassifyDoneView(APIView):
+    """Endpoint interno para n8n: aplica la clasificación LLM a ítems 'done'.
+
+    Body: {"results": [{"id": <activity_item_id>, "category": "<code>"}, ...]}.
+    El LLM manda, pero el determinístico (ya corrió al cerrar la jornada) queda como
+    fallback: categoría inválida/inactiva o ítem inexistente/override se ignoran y se
+    conserva la categoría previa."""
+    permission_classes = [IsInternalRequest]
+
+    def post(self, request):
+        from .models import ActivityCategory, ActivityTag, SEDE_NAMES
+
+        results = request.data.get('results') or []
+        valid = set(ActivityCategory.objects.filter(is_active=True).values_list('code', flat=True))
+        # La UBICACIÓN no sale del texto (el LLM la extrae pero la ignoramos): es la
+        # SEDE del empleado que reportó (employee.ciudad). Proyecto y entregable sí del LLM.
+        kind_fields = [
+            ('projects',     ActivityTag.KIND_PROJECT),
+            ('deliverables', ActivityTag.KIND_DELIVERABLE),
+        ]
+        updated = skipped = 0
+        for r in results:
+            if not isinstance(r, dict):
+                skipped += 1
+                continue
+            code = r.get('category')
+            try:
+                item_id = int(r.get('id'))
+            except (TypeError, ValueError):
+                skipped += 1
+                continue
+            if code not in valid:
+                skipped += 1
+                continue
+            try:
+                item = (ActivityItem.objects
+                        .select_related('report__workday__employee')
+                        .get(id=item_id, kind=ActivityItem.KIND_DONE, manual_override=False))
+            except ActivityItem.DoesNotExist:
+                skipped += 1
+                continue
+            item.category = code
+            item.source = ActivityItem.SOURCE_LLM
+            item.matched_keyword = ''
+            item.save(update_fields=['category', 'source', 'matched_keyword', 'classified_at'])
+            # Tags: proyecto/entregable del LLM + ubicación = sede del empleado.
+            tag_objs = []
+            sede = (item.report.workday.employee.ciudad or '').strip().upper()
+            if sede and sede != 'NONE':
+                loc = ActivityTag.resolve(ActivityTag.KIND_LOCATION, SEDE_NAMES.get(sede, sede))
+                if loc:
+                    tag_objs.append(loc)
+            for field, kind in kind_fields:
+                for name in (r.get(field) or []):
+                    tag = ActivityTag.resolve(kind, name if isinstance(name, str) else str(name))
+                    if tag:
+                        tag_objs.append(tag)
+            item.tags.set(tag_objs)
+            updated += 1
+        return Response({'updated': updated, 'skipped': skipped})
+
+
+class TagsListView(APIView):
+    """Lista de tags por `kind` con conteo de ítems (incluye los de sus alias).
+    Solo ejecutivos. Para el panel de fusión del dashboard."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from collections import defaultdict
+        from django.db.models import Count
+        from .models import ActivityTag
+        try:
+            emp = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not emp.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        kind = request.query_params.get('kind', ActivityTag.KIND_PROJECT)
+        tags = list(ActivityTag.objects.filter(kind=kind, ignored=False))
+        per_tag = dict(ActivityTag.objects.filter(kind=kind, ignored=False)
+                       .annotate(c=Count('items')).values_list('id', 'c'))
+        agg = {t.id: {'id': t.id, 'name': t.name, 'code': t.code,
+                      'count': 0, 'aliases': 0, 'alias_list': [], 'employees': []}
+               for t in tags if t.canonical_id is None}
+        for t in tags:
+            root = t.canonical_id or t.id
+            if root in agg:
+                agg[root]['count'] += per_tag.get(t.id, 0)
+                if t.canonical_id is not None:
+                    agg[root]['aliases'] += 1
+                    agg[root]['alias_list'].append({'id': t.id, 'name': t.name})
+
+        # Empleados por tag (agregando alias en su canónico), en una sola query.
+        emp_by_canon = defaultdict(lambda: defaultdict(int))
+        people = {}                        # emp_id -> name (para el filtro)
+        per_emp_canon = defaultdict(set)   # emp_id -> {canonical tag ids}
+        emp_rows = (ActivityItem.objects
+                    .filter(tags__kind=kind, tags__ignored=False)
+                    .values('tags__id', 'tags__canonical_id',
+                            'report__workday__employee_id',
+                            'report__workday__employee__full_name')
+                    .annotate(n=Count('id', distinct=True)))
+        for r in emp_rows:
+            cid = r['tags__canonical_id'] or r['tags__id']
+            eid = r['report__workday__employee_id']
+            name = r['report__workday__employee__full_name']
+            if cid in agg and name:
+                emp_by_canon[cid][name] += r['n']
+                people[eid] = name
+                per_emp_canon[eid].add(cid)
+        for cid, v in agg.items():
+            emps = sorted(emp_by_canon.get(cid, {}).items(), key=lambda x: (-x[1], x[0].lower()))
+            v['employees'] = [{'name': n, 'count': c} for n, c in emps]
+
+        # Mostrar tags con ítems, o los oficiales (con `code`) aunque tengan 0 — son
+        # el destino para asociar variantes. Se ocultan los huérfanos sin código ni ítems.
+        out = sorted((v for v in agg.values() if v['count'] > 0 or v['code']),
+                     key=lambda x: (-x['count'], x['name'].lower()))
+        # Filtro opcional por empleado: solo los tags donde ese empleado trabajó.
+        emp_filter = request.query_params.get('employee') or ''
+        if emp_filter:
+            try:
+                allowed = per_emp_canon.get(int(emp_filter), set())
+            except (TypeError, ValueError):
+                allowed = set()
+            out = [v for v in out if v['id'] in allowed]
+        all_employees = [{'id': i, 'name': n}
+                         for i, n in sorted(people.items(), key=lambda x: x[1].lower())]
+        return Response({'kind': kind, 'tags': out, 'all_employees': all_employees})
+
+
+class TagMergeView(APIView):
+    """Fusiona variantes en un tag canónico (no destructivo): `from` (y sus alias)
+    pasan a apuntar a `into`. Solo ejecutivos."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .models import ActivityTag
+        try:
+            emp = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not emp.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        try:
+            into = ActivityTag.objects.get(id=request.data.get('into'))
+        except (ActivityTag.DoesNotExist, ValueError, TypeError):
+            return Response({'error': 'into inválido'}, status=400)
+        into = into.root()  # nunca fusionar hacia un alias
+        merged = 0
+        for fid in (request.data.get('from') or []):
+            try:
+                t = ActivityTag.objects.get(id=fid, kind=into.kind)
+            except (ActivityTag.DoesNotExist, ValueError, TypeError):
+                continue
+            if t.id == into.id:
+                continue
+            t.aliases.update(canonical=into)   # re-enraizar alias previos de t
+            t.canonical = into
+            t.save(update_fields=['canonical'])
+            merged += 1
+        return Response({'into': into.id, 'name': into.name, 'merged': merged})
+
+
+class TagUnmergeView(APIView):
+    """Desagrupa: los tags indicados (que son alias) vuelven a ser canónicos
+    independientes (`canonical=None`). Solo ejecutivos."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .models import ActivityTag
+        try:
+            emp = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not emp.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+        ids = [i for i in (request.data.get('ids') or [])
+               if isinstance(i, int) or (isinstance(i, str) and i.isdigit())]
+        n = (ActivityTag.objects.filter(id__in=ids, canonical__isnull=False)
+             .update(canonical=None))
+        return Response({'unmerged': n})
+
+
+class TagIgnoreView(APIView):
+    """Descarta tags mal extraídos (ej. nombres de persona tomados como proyecto).
+    Los marca `ignored`, desvincula sus ítems y evita que se vuelvan a asociar. Solo
+    ejecutivos."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .models import ActivityTag
+        try:
+            emp = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not emp.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        ids = [i for i in (request.data.get('ids') or [])
+               if isinstance(i, int) or (isinstance(i, str) and i.isdigit())]
+        n = 0
+        for t in ActivityTag.objects.filter(id__in=ids):
+            family = [t] + list(t.aliases.all())   # el tag y todos sus alias
+            for ft in family:
+                ft.items.clear()                   # desaparece de reportes
+                if not ft.ignored:
+                    ft.ignored = True
+                    ft.save(update_fields=['ignored'])
+            n += 1
+        return Response({'ignored': n})
+
+
+class TagRenameView(APIView):
+    """Edita el nombre visible de un tag (no cambia su `key` de deduplicación, así
+    futuras extracciones del nombre original siguen ruteando aquí). Solo ejecutivos."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, tag_id):
+        from .models import ActivityTag
+        try:
+            emp = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not emp.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+        try:
+            tag = ActivityTag.objects.get(id=tag_id)
+        except (ActivityTag.DoesNotExist, ValueError, TypeError):
+            return Response({'error': 'no encontrado'}, status=404)
+        name = (request.data.get('name') or '').strip()[:120]
+        if not name:
+            return Response({'error': 'nombre vacío'}, status=400)
+        tag.name = name
+        tag.save(update_fields=['name'])
+        return Response({'id': tag.id, 'name': tag.name})
+
+
+class TagEmployeesView(APIView):
+    """Empleados que trabajaron en un tag (proyecto/ubicación/entregable), incluyendo
+    los ítems de sus alias. Para el cruce tag↔empleado en el dashboard. Solo ejecutivos."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, tag_id):
+        from django.db.models import Count
+        from .models import ActivityTag
+        try:
+            emp = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not emp.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+        try:
+            tag = ActivityTag.objects.get(id=tag_id)
+        except (ActivityTag.DoesNotExist, ValueError, TypeError):
+            return Response({'error': 'no encontrado'}, status=404)
+        tag = tag.root()
+        ids = [tag.id] + list(tag.aliases.values_list('id', flat=True))
+        rows = (ActivityItem.objects.filter(tags__in=ids)
+                .values('report__workday__employee_id',
+                        'report__workday__employee__full_name')
+                .annotate(n=Count('id', distinct=True)).order_by('-n'))
+        employees = [{'id': r['report__workday__employee_id'],
+                      'name': r['report__workday__employee__full_name'], 'count': r['n']}
+                     for r in rows]
+        return Response({'tag': tag.name, 'employees': employees})
+
+
 def _close_stale_workdays():
-    """Cierra jornadas que quedaron abiertas de días anteriores (a las 17:00 hora local)."""
-    today = _local_now().date()
+    """Cierra jornadas in_progress que el empleado no cerró del día ANTERIOR (corre a las 00:00
+    del día siguiente). Las marca como INCOMPLETE + auto_closed y avisa al empleado vía skyBot."""
+    target = _local_now().date() - timedelta(days=1)
+    day_start = timezone.make_aware(_datetime.combine(target, _time(0, 0)))
+    day_end   = timezone.make_aware(_datetime.combine(target, _time(23, 59, 59)))
     stale = Workday.objects.filter(
         status=Workday.STATUS_IN_PROGRESS,
-        start_time__lt=timezone.make_aware(_datetime.combine(today, _time(0, 0))),
-    )
+        start_time__range=(day_start, day_end),
+    ).select_related('employee')
+    count = 0
     for w in stale:
         local_start = timezone.localtime(w.start_time)
         close_at = timezone.make_aware(
@@ -209,9 +604,19 @@ def _close_stale_workdays():
         duration = max(1, int((close_at - w.start_time).total_seconds() // 60))
         w.end_time = close_at
         w.duration_minutes = duration
-        w.status = Workday.STATUS_COMPLETED
+        w.status = Workday.STATUS_INCOMPLETE
         w.auto_closed = True
         w.save(update_fields=['end_time', 'duration_minutes', 'status', 'auto_closed'])
+
+        # Aviso automático al empleado (remitente: bot del sistema skyBot → sender=None)
+        fecha = local_start.strftime('%d/%m/%Y')
+        ExecutiveMessage.objects.create(
+            sender=None,
+            recipient=w.employee,
+            body=f'Tu jornada del {fecha} quedó abierta y fue cerrada automáticamente a las 17:00.',
+        )
+        count += 1
+    return count
 
 
 class EmployeeOverviewView(APIView):
@@ -227,34 +632,69 @@ class EmployeeOverviewView(APIView):
         if not employee.is_executive:
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
-        _close_stale_workdays()
+        # Fecha solicitada (por defecto hoy)
+        date_param = request.query_params.get('date', '')
+        today = _local_now().date()
+        try:
+            target_date = _date.fromisoformat(date_param) if date_param else today
+        except ValueError:
+            target_date = today
+        is_today = (target_date == today)
+
 
         now = timezone.now()
-
         employees = Employee.objects.filter(is_active=True, is_executive=False).order_by('full_name')
-
         global_interval = CaptureConfig.get().capture_interval_minutes
 
-        # Jornadas activas en un solo query
+        target_start = timezone.make_aware(_datetime.combine(target_date, _time(0, 0)))
+        target_end   = timezone.make_aware(_datetime.combine(target_date, _time(23, 59, 59)))
+
+        # Mensajes del día visualizado (confirmados o no) agrupados por destinatario
+        messages_by_employee = {}
+        for m in ExecutiveMessage.objects.filter(
+            recipient__in=employees,
+            sent_at__range=(target_start, target_end),
+        ).order_by('sent_at').select_related('sender'):
+            messages_by_employee.setdefault(m.recipient_id, []).append(m)
+
+        # Jornadas activas (in_progress) iniciadas en el día visualizado.
+        # Una jornada que el empleado dejó abierta en un día pasado se sigue
+        # mostrando como activa en ese día (hasta que el cierre de las 00:00 la tome).
         active_workdays = {
             w.employee_id: w
             for w in Workday.objects.filter(
                 employee__in=employees,
                 status=Workday.STATUS_IN_PROGRESS,
-            )
+                start_time__range=(target_start, target_end),
+            ).select_related('daily_report')
         }
+        # La inactividad en vivo solo aplica al día de hoy.
+        inactive_by_workday = {}
+        if is_today:
+            inactive_by_workday = {
+                row['workday_id']: row['total']
+                for row in InactivityPeriod.objects.filter(
+                    workday_id__in=active_workdays.values()
+                ).values('workday_id').annotate(total=models.Sum('duration_minutes'))
+            }
 
-        # Minutos inactivos por jornada activa
-        inactive_by_workday = {
-            row['workday_id']: row['total']
-            for row in InactivityPeriod.objects.filter(
-                workday_id__in=active_workdays.values()
-            ).values('workday_id').annotate(total=models.Sum('duration_minutes'))
+        # Jornadas cerradas que INICIARON el día solicitado: completadas por el
+        # empleado o auto-cerradas sin finalizar (INCOMPLETE). Se filtra por
+        # start_time (la jornada pertenece a su día de inicio), evitando que una
+        # jornada que se extendió de un día a otro aparezca en el día equivocado.
+        completed_workdays = {
+            w.employee_id: w
+            for w in Workday.objects.filter(
+                employee__in=employees,
+                status__in=[Workday.STATUS_COMPLETED, Workday.STATUS_INCOMPLETE],
+                start_time__range=(target_start, target_end),
+            ).select_related('daily_report')
         }
 
         result = []
         for emp in employees:
-            workday = active_workdays.get(emp.id)
+            workday  = active_workdays.get(emp.id)
+            completed = completed_workdays.get(emp.id)
 
             effective_interval = (
                 emp.capture_interval_minutes
@@ -262,11 +702,17 @@ class EmployeeOverviewView(APIView):
                 else global_interval
             )
 
-            agent_active = emp.agent_online
+            agent_active = emp.agent_online if is_today else False
+            emp_msgs = messages_by_employee.get(emp.id, [])
             result.append({
                 'id': emp.id,
                 'full_name': emp.full_name,
+                'messages': [
+                    {'body': m.body, 'sender': m.sender.full_name if m.sender else 'skyBot', 'acknowledged': bool(m.acknowledged_at)}
+                    for m in emp_msgs
+                ],
                 'solo_movil': emp.solo_movil,
+                'mobile_device_bound': bool(emp.mobile_device_id),
                 'agent_is_active': agent_active,
                 'agent_version': emp.agent_version,
                 'agent_last_seen': emp.agent_last_seen,
@@ -282,16 +728,35 @@ class EmployeeOverviewView(APIView):
                     'auto_closed': workday.auto_closed,
                     'start_latitude':  float(workday.start_latitude)  if workday.start_latitude  else None,
                     'start_longitude': float(workday.start_longitude) if workday.start_longitude else None,
-                } if workday else None,
+                    'activities_done': getattr(workday, 'daily_report', None) and workday.daily_report.activities_done or '',
+                    'activities_planned': getattr(workday, 'daily_report', None) and workday.daily_report.activities_planned or '',
+                } if workday else ({
+                    'active': False,
+                    'completed': True,
+                    'start_time': completed.start_time,
+                    'end_time': completed.end_time,
+                    'duration_minutes': completed.duration_minutes,
+                    'auto_closed': completed.auto_closed,
+                    'activities_done': getattr(completed, 'daily_report', None) and completed.daily_report.activities_done or '',
+                    'activities_planned': getattr(completed, 'daily_report', None) and completed.daily_report.activities_planned or '',
+                } if completed else None),
             })
 
         agents_online = sum(1 for e in result if e['agent_is_active'])
+        activities_count = ActivityItem.objects.filter(
+            kind=ActivityItem.KIND_DONE,
+            report__workday__start_time__range=(target_start, target_end),
+            report__workday__employee__is_active=True,
+            report__workday__employee__is_executive=False,
+        ).count()
         return Response({
+            'is_today': is_today,
             'summary': {
                 'active_now': len(active_workdays),
-                'completed_today': 0,
+                'completed_today': len(completed_workdays),
                 'agents_online': agents_online,
                 'total_employees': len(result),
+                'activities': activities_count,
             },
             'employees': result,
         })
@@ -453,6 +918,114 @@ class SendMessageView(APIView):
         return Response({'id': message.id, 'sent_at': message.sent_at}, status=status.HTTP_201_CREATED)
 
 
+class EmployeePendingMessagesView(APIView):
+    """Ejecutivo obtiene los mensajes pendientes de un empleado específico."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, employee_id):
+        try:
+            executive = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        if not executive.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        try:
+            recipient = Employee.objects.get(id=employee_id, is_active=True)
+        except Employee.DoesNotExist:
+            return Response({'error': 'Empleado no encontrado'}, status=404)
+
+        cutoff = timezone.now() - timedelta(hours=24)
+        messages = (
+            ExecutiveMessage.objects
+            .filter(recipient=recipient, acknowledged_at__isnull=True, sent_at__gte=cutoff)
+            .select_related('sender')
+        )
+        data = [
+            {
+                'id': m.id,
+                'body': m.body,
+                'sent_at': m.sent_at,
+                'sender_name': m.sender.full_name if m.sender else 'skyBot',
+            }
+            for m in messages
+        ]
+        return Response(data)
+
+
+class EmployeeViewDataView(APIView):
+    """Ejecutivo obtiene todos los datos del dashboard de un empleado específico."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, employee_id):
+        try:
+            executive = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        if not executive.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        try:
+            emp = Employee.objects.get(id=employee_id, is_active=True, is_executive=False)
+        except Employee.DoesNotExist:
+            return Response({'error': 'Empleado no encontrado'}, status=404)
+
+        now = timezone.now()
+
+        profile = {
+            'id': emp.id,
+            'full_name': emp.full_name,
+            'email': emp.user.email if emp.user else '',
+            'agent_version': emp.agent_version,
+            'agent_last_seen': emp.agent_last_seen,
+            'agent_is_active': emp.agent_online,
+            'solo_movil': emp.solo_movil,
+            'skylog_access': emp.skylog_access,
+            'is_executive': False,
+        }
+
+        workday_data = None
+        wd = (
+            Workday.objects.select_related('daily_report')
+            .filter(employee=emp, status=Workday.STATUS_IN_PROGRESS)
+            .order_by('-start_time')
+            .first()
+        )
+        if wd:
+            workday_data = {
+                'active': True,
+                'workday_id': wd.id,
+                'start_time': wd.start_time,
+                'duration_minutes': int((now - wd.start_time).total_seconds() // 60),
+                'activities_done': getattr(wd, 'daily_report', None) and wd.daily_report.activities_done or '',
+                'activities_planned': getattr(wd, 'daily_report', None) and wd.daily_report.activities_planned or '',
+            }
+
+        last_report = None
+        if not workday_data:
+            last = (
+                Workday.objects
+                .filter(employee=emp, status=Workday.STATUS_COMPLETED)
+                .select_related('daily_report')
+                .order_by('-end_time')
+                .first()
+            )
+            if last:
+                try:
+                    last_report = {
+                        'has_report': True,
+                        'activities_done': last.daily_report.activities_done,
+                        'activities_planned': last.daily_report.activities_planned,
+                        'date': last.end_time.date(),
+                    }
+                except DailyReport.DoesNotExist:
+                    pass
+
+        return Response({**profile, 'workday': workday_data, 'last_report': last_report})
+
+
 class PendingMessagesView(APIView):
     """Empleado obtiene sus mensajes pendientes de confirmar."""
     permission_classes = [IsAuthenticated]
@@ -467,13 +1040,15 @@ class PendingMessagesView(APIView):
             ExecutiveMessage.objects
             .filter(recipient=employee, acknowledged_at__isnull=True)
             .select_related('sender')
+            .order_by('sent_at')
         )
         data = [
             {
                 'id': m.id,
                 'body': m.body,
                 'sent_at': m.sent_at,
-                'sender_name': m.sender.full_name,
+                'sender_name': m.sender.full_name if m.sender else 'skyBot',
+                'day_closed': m.day_closed,
             }
             for m in messages
         ]
@@ -500,7 +1075,7 @@ class WorkdayMonthlyView(APIView):
         first_dt, last_dt = _month_range(year, month)
         completed = Workday.objects.filter(
             employee=employee,
-            status=Workday.STATUS_COMPLETED,
+            status__in=[Workday.STATUS_COMPLETED, Workday.STATUS_INCOMPLETE],
             start_time__gte=first_dt,
             start_time__lte=last_dt,
         ).values('start_time', 'duration_minutes', 'auto_closed')
@@ -509,15 +1084,15 @@ class WorkdayMonthlyView(APIView):
         auto_closed_days: set = set()
         for w in completed:
             day = timezone.localtime(w['start_time']).day
+            days[day] = days.get(day, 0) + (w['duration_minutes'] or 0) / 60
             if w['auto_closed']:
                 auto_closed_days.add(day)
-            else:
-                days[day] = days.get(day, 0) + (w['duration_minutes'] or 0) / 60
 
         # Incluir jornada activa si cae en el mes solicitado
         active_day = None
         try:
-            active = Workday.objects.get(employee=employee, status=Workday.STATUS_IN_PROGRESS)
+            active = Workday.objects.filter(employee=employee, status=Workday.STATUS_IN_PROGRESS).order_by('-start_time').first()
+            if not active: raise Workday.DoesNotExist
             local_start = timezone.localtime(active.start_time)
             if local_start.year == year and local_start.month == month:
                 active_day = local_start.day
@@ -585,7 +1160,7 @@ class EmployeeMonthlyView(APIView):
         first_dt, last_dt = _month_range(year, month)
         completed = Workday.objects.filter(
             employee=employee,
-            status=Workday.STATUS_COMPLETED,
+            status__in=[Workday.STATUS_COMPLETED, Workday.STATUS_INCOMPLETE],
             start_time__gte=first_dt,
             start_time__lte=last_dt,
         ).values('start_time', 'duration_minutes', 'auto_closed')
@@ -600,7 +1175,8 @@ class EmployeeMonthlyView(APIView):
 
         active_day = None
         try:
-            active = Workday.objects.get(employee=employee, status=Workday.STATUS_IN_PROGRESS)
+            active = Workday.objects.filter(employee=employee, status=Workday.STATUS_IN_PROGRESS).order_by('-start_time').first()
+            if not active: raise Workday.DoesNotExist
             local_start = timezone.localtime(active.start_time)
             if local_start.year == year and local_start.month == month:
                 active_day = local_start.day
@@ -644,9 +1220,18 @@ class AcknowledgeMessageView(APIView):
 
     def post(self, request, message_id):
         try:
-            employee = request.user.employee
+            requester = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        view_as_id = request.query_params.get('view_as')
+        if view_as_id and requester.is_executive:
+            try:
+                employee = Employee.objects.get(id=view_as_id, is_active=True)
+            except Employee.DoesNotExist:
+                return Response({'error': 'Empleado no encontrado'}, status=404)
+        else:
+            employee = requester
 
         try:
             message = ExecutiveMessage.objects.get(id=message_id, recipient=employee)
@@ -886,6 +1471,10 @@ class ReporteAPIView(APIView):
         else:
             label = f'{from_date.strftime("%d/%m/%Y")} — {to_date.strftime("%d/%m/%Y")}'
 
+        today = local_now.date()
+        if to_date > today:
+            to_date = today
+
         first_dt = timezone.make_aware(_datetime.combine(from_date, _time(0, 0, 0)))
         last_dt  = timezone.make_aware(_datetime.combine(to_date,   _time(23, 59, 59)))
 
@@ -896,7 +1485,7 @@ class ReporteAPIView(APIView):
         wd_lookup = {}
         for wd in Workday.objects.filter(
             employee__is_active=True, employee__is_executive=False,
-            status=Workday.STATUS_COMPLETED,
+            status__in=[Workday.STATUS_COMPLETED, Workday.STATUS_INCOMPLETE],
             start_time__gte=first_dt, start_time__lte=last_dt,
         ).select_related('employee'):
             local_start = timezone.localtime(wd.start_time)
@@ -961,6 +1550,7 @@ class ReporteAPIView(APIView):
                     'hora_salida':     hora_salida,
                     'horas_trabajadas': horas_trabajadas,
                     'atraso_minutos':  atraso_minutos,
+                    'no_cerro':        bool(wd and wd.auto_closed),
                     'comentario_leaves': leaves_lookup.get((emp.id, day), []),
                     'comentario_notes':  notes_lookup.get(day, []),
                     'is_weekend':      day.weekday() >= 5,
@@ -968,6 +1558,550 @@ class ReporteAPIView(APIView):
                 })
 
         return Response({'rows': rows, 'total': len(rows), 'label': label})
+
+
+def _parse_period(request):
+    """Parsea mode=month|range de los query params y devuelve el rango.
+
+    Returns: (first_dt, last_dt, from_date, to_date, label)
+    """
+    local_now = _local_now()
+    filter_mode = request.query_params.get('mode', 'month')
+
+    from_date = to_date = None
+    if filter_mode == 'range':
+        try:
+            from_date = _date.fromisoformat(request.query_params.get('from', ''))
+            to_date   = _date.fromisoformat(request.query_params.get('to', ''))
+            if to_date < from_date:
+                to_date = from_date
+        except (ValueError, TypeError):
+            filter_mode = 'month'
+
+    if filter_mode == 'month':
+        try:
+            sel_year  = int(request.query_params.get('year',  local_now.year))
+            sel_month = int(request.query_params.get('month', local_now.month))
+            if not (1 <= sel_month <= 12):
+                raise ValueError
+        except (ValueError, TypeError):
+            sel_year, sel_month = local_now.year, local_now.month
+        from_date = _date(sel_year, sel_month, 1)
+        to_date   = _date(sel_year, sel_month, _cal.monthrange(sel_year, sel_month)[1])
+        label = f'{_MONTH_NAMES[sel_month - 1]} {sel_year}'
+    else:
+        label = f'{from_date.strftime("%d/%m/%Y")} — {to_date.strftime("%d/%m/%Y")}'
+
+    today = local_now.date()
+    if to_date > today:
+        to_date = today
+
+    first_dt = timezone.make_aware(_datetime.combine(from_date, _time(0, 0, 0)))
+    last_dt  = timezone.make_aware(_datetime.combine(to_date,   _time(23, 59, 59)))
+    return first_dt, last_dt, from_date, to_date, label
+
+
+def _tag_breakdown(qs, kind, top=12, split_by_sede=False, total_qs=None):
+    """Top-N tags de un `kind` sobre el queryset de ActivityItem ya filtrado,
+    agrupando alias en su tag canónico (root). Devuelve [{id, name, color, count}].
+    Con split_by_sede=True agrega `segments` (desglose por sede del empleado).
+    Con total_qs agrega `total` (conteo global, sin el filtro de empleado) para comparar."""
+    from collections import defaultdict
+    from django.db.models import Count
+    rows = (qs.filter(tags__kind=kind, tags__ignored=False)
+            .values('tags__id', 'tags__name', 'tags__color',
+                    'tags__canonical_id', 'tags__canonical__name', 'tags__canonical__color')
+            .annotate(n=Count('id')))
+    agg = {}
+    for r in rows:
+        cid = r['tags__canonical_id'] or r['tags__id']
+        if cid is None:
+            continue
+        name = r['tags__canonical__name'] or r['tags__name']
+        color = (r['tags__canonical__color'] if r['tags__canonical_id'] else r['tags__color']) or ''
+        bucket = agg.setdefault(cid, {'id': cid, 'name': name, 'color': color, 'count': 0})
+        bucket['count'] += r['n']
+
+    if split_by_sede:
+        from .models import ActivityTag, SEDE_NAMES
+        sede_color = dict(ActivityTag.objects.filter(
+            kind=ActivityTag.KIND_LOCATION, canonical__isnull=True).values_list('name', 'color'))
+        seg = defaultdict(lambda: defaultdict(int))   # cid -> sede -> count
+        for r in (qs.filter(tags__kind=kind, tags__ignored=False)
+                  .values('tags__id', 'tags__canonical_id', 'report__workday__employee__ciudad')
+                  .annotate(n=Count('id'))):
+            cid = r['tags__canonical_id'] or r['tags__id']
+            if cid is None:
+                continue
+            sede = SEDE_NAMES.get((r['report__workday__employee__ciudad'] or '').strip().upper(), '—')
+            seg[cid][sede] += r['n']
+        for b in agg.values():
+            parts = sorted(seg.get(b['id'], {}).items(), key=lambda x: (-x[1], x[0]))
+            b['segments'] = [{'name': s, 'count': c, 'color': sede_color.get(s, '')} for s, c in parts]
+
+    if total_qs is not None:
+        totals = defaultdict(int)
+        for r in (total_qs.filter(tags__kind=kind, tags__ignored=False)
+                  .values('tags__id', 'tags__canonical_id').annotate(n=Count('id'))):
+            cid = r['tags__canonical_id'] or r['tags__id']
+            if cid is not None:
+                totals[cid] += r['n']
+        for b in agg.values():
+            b['total'] = totals.get(b['id'], b['count'])
+
+    out = sorted(agg.values(), key=lambda x: (-x['count'], x['name'].lower()))
+    return out[:top]
+
+
+def estadisticas_view(request):
+    """Sirve el shell HTML de estadísticas. Datos vía /api/estadisticas/."""
+    local_now = _local_now()
+    years_range = list(range(local_now.year - 2, local_now.year + 1))
+    return render(request, 'workdays/estadisticas.html', {
+        'current_year': local_now.year,
+        'current_month': local_now.month,
+        'months': list(enumerate(_MONTH_NAMES, 1)),
+        'years': years_range,
+    })
+
+
+class EstadisticasAPIView(APIView):
+    """Estadísticas de actividades clasificadas. Solo ejecutivos.
+
+    Excluye ejecutivos y empleados con rol "otro" (almacén): las estadísticas
+    son sobre Supervisores vs Project Managers.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from collections import Counter, defaultdict
+        from django.db.models.functions import TruncMonth, TruncWeek
+        from .models import ActivityItem, ActivityCategory
+
+        try:
+            executive = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not executive.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        mode = request.query_params.get('mode', 'month')
+        if mode == 'all':
+            first_dt = last_dt = from_date = to_date = None
+            label = 'Todos'
+            period = ''  # se completa con el rango real de los datos más abajo
+        elif mode == 'last':
+            # El último día con datos se resuelve más abajo, una vez aplicados los filtros.
+            first_dt = last_dt = from_date = to_date = None
+            label = 'Último día'
+            period = ''
+        else:
+            first_dt, last_dt, from_date, to_date, label = _parse_period(request)
+            period = f'{from_date.strftime("%d/%m/%Y")} — {to_date.strftime("%d/%m/%Y")}'
+        kind = request.query_params.get('kind', ActivityItem.KIND_DONE)
+        if kind not in (ActivityItem.KIND_DONE, ActivityItem.KIND_PLANNED):
+            kind = ActivityItem.KIND_DONE
+        role_filter = request.query_params.get('role') or ''
+        emp_filter  = request.query_params.get('employee') or ''
+
+        # Empleados elegibles: activos, no ejecutivos, rol supervisor/PM.
+        emp_meta = {}  # id -> (name, role)
+        for emp in Employee.objects.filter(is_active=True, is_executive=False):
+            if emp.role == Employee.ROLE_OTRO:
+                continue
+            emp_meta[emp.id] = (emp.full_name, emp.role)
+
+        cats = list(ActivityCategory.objects.order_by('order', 'label'))
+        cat_codes  = [c.code for c in cats]
+        cat_labels = {c.code: c.label for c in cats}
+        cat_colors = {c.code: c.color for c in cats}
+
+        def _base_qs(dt_from, dt_to, apply_emp=True):
+            qs = ActivityItem.objects.filter(
+                kind=kind,
+                report__workday__employee_id__in=emp_meta.keys(),
+            )
+            if dt_from is not None:
+                qs = qs.filter(report__workday__start_time__gte=dt_from)
+            if dt_to is not None:
+                qs = qs.filter(report__workday__start_time__lte=dt_to)
+            if apply_emp and emp_filter:
+                qs = qs.filter(report__workday__employee_id=emp_filter)
+            if role_filter:
+                ids = [eid for eid, (_, r) in emp_meta.items() if r == role_filter]
+                qs = qs.filter(report__workday__employee_id__in=ids)
+            return qs
+
+        # En modo "Todo": etiqueta con el rango real (reporte más antiguo → más reciente).
+        if mode == 'all':
+            agg = _base_qs(None, None).aggregate(
+                mn=models.Min('report__workday__start_time'),
+                mx=models.Max('report__workday__start_time'))
+            if agg['mn'] and agg['mx']:
+                d0 = timezone.localtime(agg['mn']).strftime('%d/%m/%Y')
+                d1 = timezone.localtime(agg['mx']).strftime('%d/%m/%Y')
+                period = f'{d0} — {d1}'  # el rango va solo en "Período:"; label queda 'Todos'
+
+        # En modo "Último": acota al día (local) del reporte más reciente con datos.
+        elif mode == 'last':
+            mx = _base_qs(None, None).aggregate(
+                mx=models.Max('report__workday__start_time'))['mx']
+            if mx:
+                day = timezone.localtime(mx).date()
+                from_date = to_date = day
+                first_dt = timezone.make_aware(_datetime.combine(day, _time(0, 0, 0)))
+                last_dt  = timezone.make_aware(_datetime.combine(day, _time(23, 59, 59)))
+                period = day.strftime('%d/%m/%Y')  # el día va solo en "Período:"; label queda 'Último día'
+
+        rows = list(_base_qs(first_dt, last_dt).values_list(
+            'category', 'report__workday__employee_id', 'report_id',
+            'report__workday__start_time'))
+
+        total_items = len(rows)
+        cat_counter = Counter()
+        emp_counter = defaultdict(lambda: defaultdict(int))    # emp_id -> cat -> n
+        emp_reports = defaultdict(set)                          # emp_id -> {report_id}
+        emp_last = {}                                          # emp_id -> max start_time
+        report_ids = set()
+
+        for cat, emp_id, report_id, st in rows:
+            cat_counter[cat] += 1
+            emp_counter[emp_id][cat] += 1
+            emp_reports[emp_id].add(report_id)
+            if emp_id not in emp_last or st > emp_last[emp_id]:
+                emp_last[emp_id] = st
+            report_ids.add(report_id)
+
+        # Referencia por rol (ignora el filtro de empleado): se agrega por empleado para
+        # poder calcular promedios por empleado y compararlos con el nombre seleccionado.
+        ref_emp_cat = defaultdict(lambda: defaultdict(int))    # emp_id -> cat -> n
+        ref_emp_reports = defaultdict(set)                     # emp_id -> {report_id}
+        for cat, emp_id, rep_id in _base_qs(first_dt, last_dt, apply_emp=False).values_list(
+                'category', 'report__workday__employee_id', 'report_id'):
+            ref_emp_cat[emp_id][cat] += 1
+            ref_emp_reports[emp_id].add(rep_id)
+
+        role_counter = defaultdict(lambda: defaultdict(int))   # role -> cat -> n
+        role_total = defaultdict(int)
+        role_emps = defaultdict(set)                           # role -> {emp_id}
+        role_report_days = defaultdict(int)                    # role -> suma de días c/reporte
+        for emp_id, ctr in ref_emp_cat.items():
+            _, role = emp_meta[emp_id]
+            role_emps[role].add(emp_id)
+            role_report_days[role] += len(ref_emp_reports[emp_id])
+            for c, n in ctr.items():
+                role_counter[role][c] += n
+                role_total[role] += n
+
+        categories = [
+            {'code': code, 'label': cat_labels[code], 'count': cat_counter.get(code, 0),
+             'pct': round(100 * cat_counter.get(code, 0) / total_items, 1) if total_items else 0}
+            for code in cat_codes
+        ]
+
+        by_role = []
+        for role in (Employee.ROLE_SUPERVISOR, Employee.ROLE_PROJECT_MANAGER):
+            if not role_total.get(role):
+                continue
+            n = len(role_emps[role]) or 1
+            rdays = role_report_days[role]
+            by_role.append({
+                'role': role,
+                'label': Employee.ROLE_LABELS[role],
+                'total': role_total[role],
+                'categories': {code: role_counter[role].get(code, 0) for code in cat_codes},
+                # Promedios por empleado del rol (referencia para tablas/top categorías).
+                'n_emps': len(role_emps[role]),
+                'avg_total': round(role_total[role] / n, 1),
+                'avg_reports': round(rdays / n, 1),
+                'avg_perday': round(role_total[role] / rdays, 1) if rdays else 0,
+                'avg_categories': {code: round(role_counter[role].get(code, 0) / n, 1) for code in cat_codes},
+            })
+
+        employees = []
+        for emp_id, counter in emp_counter.items():
+            name, role = emp_meta[emp_id]
+            tot = sum(counter.values())
+            top = max(counter, key=counter.get)
+            last = emp_last.get(emp_id)
+            employees.append({
+                'id': emp_id, 'name': name, 'role': role, 'total': tot,
+                'reports': len(emp_reports[emp_id]),
+                'last_date': timezone.localtime(last).strftime('%d/%m/%Y') if last else '',
+                'top_category': top,
+                'categories': {code: counter.get(code, 0) for code in cat_codes},
+            })
+        employees.sort(key=lambda e: (-e['total'], e['name']))
+
+        # Evolución temporal: mensual (últimos 6 meses) o semanal (últimas 12 semanas).
+        # En "Todo": todos los periodos con datos.
+        gran = request.query_params.get('granularity', 'month')
+        if gran not in ('month', 'week'):
+            gran = 'month'
+
+        if mode == 'all':
+            ev_first = None
+        elif gran == 'week':
+            ev_start = from_date - timedelta(days=from_date.weekday(), weeks=11)
+            ev_first = timezone.make_aware(_datetime.combine(ev_start, _time(0, 0, 0)))
+        else:
+            ev_start = from_date.replace(day=1)
+            for _ in range(5):
+                ev_start = (ev_start - timedelta(days=1)).replace(day=1)
+            ev_first = timezone.make_aware(_datetime.combine(ev_start, _time(0, 0, 0)))
+
+        Trunc = TruncWeek if gran == 'week' else TruncMonth
+        evo_rows = _base_qs(ev_first, last_dt).annotate(
+            p=Trunc('report__workday__start_time')
+        ).values_list('p', 'category')
+        bucket = defaultdict(lambda: defaultdict(int))
+        for p, cat in evo_rows:
+            lp = timezone.localtime(p) if timezone.is_aware(p) else p
+            key = lp.strftime('%Y-%m-%d') if gran == 'week' else lp.strftime('%Y-%m')
+            bucket[key][cat] += 1
+        monthly = []
+        for key in sorted(bucket):
+            cats = bucket[key]
+            if gran == 'week':
+                lbl = _date.fromisoformat(key).strftime('%d/%m')
+            else:
+                y, mm = key.split('-')
+                lbl = f'{_MONTH_NAMES[int(mm) - 1][:3]} {y[2:]}'
+            monthly.append({
+                'month': key,
+                'label': lbl,
+                'total': sum(cats.values()),
+                'categories': {code: cats.get(code, 0) for code in cat_codes},
+            })
+
+        # Empleado seleccionado (si hay filtro): su composición propia, para
+        # graficarla contra el promedio de cada rol como referencia.
+        selected_employee = None
+        if emp_filter:
+            try:
+                sel_id = int(emp_filter)
+            except (TypeError, ValueError):
+                sel_id = None
+            if sel_id in emp_meta:
+                name, role = emp_meta[sel_id]
+                ctr = emp_counter.get(sel_id, {})
+                selected_employee = {
+                    'id': sel_id,
+                    'name': name,
+                    'role': role,
+                    'total': sum(ctr.values()),
+                    'categories': {code: ctr.get(code, 0) for code in cat_codes},
+                }
+
+        # Con un empleado seleccionado, mostramos su conteo + el TOTAL de todos
+        # (queryset sin el filtro de empleado) para comparar.
+        tot_qs = _base_qs(first_dt, last_dt, apply_emp=False) if emp_filter else None
+        return Response({
+            'label': label,
+            'period': period,
+            'kind': kind,
+            'granularity': gran,
+            'total_items': total_items,
+            'total_reports': len(report_ids),
+            'category_labels': cat_labels,
+            'category_colors': cat_colors,
+            'categories': categories,
+            'by_role': by_role,
+            'selected_employee': selected_employee,
+            'monthly': monthly,
+            'employees': employees,
+            'by_project':     _tag_breakdown(_base_qs(first_dt, last_dt), 'project', split_by_sede=True, total_qs=tot_qs),
+            'by_location':    _tag_breakdown(_base_qs(first_dt, last_dt), 'location'),
+            'by_deliverable': _tag_breakdown(_base_qs(first_dt, last_dt), 'deliverable', split_by_sede=True, total_qs=tot_qs),
+        })
+
+
+class MisEstadisticasView(APIView):
+    """Estadísticas de actividades del propio empleado logueado.
+
+    Igual estructura que EstadisticasAPIView pero acotado al usuario actual y SIN
+    requerir is_executive — cada empleado ve solo sus propios datos.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from collections import Counter, defaultdict
+        from django.db.models.functions import TruncMonth, TruncWeek
+        from .models import ActivityItem, ActivityCategory
+
+        try:
+            employee = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        mode = request.query_params.get('mode', 'all')
+        if mode in ('all', 'last'):
+            first_dt = last_dt = from_date = to_date = None
+            label = 'Todos' if mode == 'all' else 'Último día'
+            period = ''
+        else:
+            first_dt, last_dt, from_date, to_date, label = _parse_period(request)
+            period = f'{from_date.strftime("%d/%m/%Y")} — {to_date.strftime("%d/%m/%Y")}'
+
+        kind = request.query_params.get('kind', ActivityItem.KIND_DONE)
+        if kind not in (ActivityItem.KIND_DONE, ActivityItem.KIND_PLANNED):
+            kind = ActivityItem.KIND_DONE
+
+        cats = list(ActivityCategory.objects.order_by('order', 'label'))
+        cat_codes  = [c.code for c in cats]
+        cat_labels = {c.code: c.label for c in cats}
+        cat_colors = {c.code: c.color for c in cats}
+
+        def _base_qs(dt_from, dt_to):
+            qs = ActivityItem.objects.filter(kind=kind, report__workday__employee_id=employee.id)
+            if dt_from is not None:
+                qs = qs.filter(report__workday__start_time__gte=dt_from)
+            if dt_to is not None:
+                qs = qs.filter(report__workday__start_time__lte=dt_to)
+            return qs
+
+        if mode == 'all':
+            agg = _base_qs(None, None).aggregate(
+                mn=models.Min('report__workday__start_time'),
+                mx=models.Max('report__workday__start_time'))
+            if agg['mn'] and agg['mx']:
+                d0 = timezone.localtime(agg['mn']).strftime('%d/%m/%Y')
+                d1 = timezone.localtime(agg['mx']).strftime('%d/%m/%Y')
+                period = f'{d0} — {d1}'
+        elif mode == 'last':
+            mx = _base_qs(None, None).aggregate(mx=models.Max('report__workday__start_time'))['mx']
+            if mx:
+                day = timezone.localtime(mx).date()
+                from_date = to_date = day
+                first_dt = timezone.make_aware(_datetime.combine(day, _time(0, 0, 0)))
+                last_dt  = timezone.make_aware(_datetime.combine(day, _time(23, 59, 59)))
+                period = day.strftime('%d/%m/%Y')
+
+        rows = list(_base_qs(first_dt, last_dt).values_list(
+            'category', 'report_id', 'report__workday__start_time'))
+        total_items = len(rows)
+        cat_counter = Counter()
+        report_ids = set()
+        last_dt_seen = None
+        for cat, rep_id, st in rows:
+            cat_counter[cat] += 1
+            report_ids.add(rep_id)
+            if last_dt_seen is None or st > last_dt_seen:
+                last_dt_seen = st
+
+        categories = [
+            {'code': code, 'label': cat_labels[code], 'count': cat_counter.get(code, 0),
+             'pct': round(100 * cat_counter.get(code, 0) / total_items, 1) if total_items else 0}
+            for code in cat_codes
+        ]
+
+        # Evolución temporal (semanal: últimas 12 semanas; mensual: últimos 6 meses).
+        gran = request.query_params.get('granularity', 'week')
+        if gran not in ('month', 'week'):
+            gran = 'week'
+        if mode == 'all':
+            ev_first = None
+        elif gran == 'week':
+            ev_start = from_date - timedelta(days=from_date.weekday(), weeks=11)
+            ev_first = timezone.make_aware(_datetime.combine(ev_start, _time(0, 0, 0)))
+        else:
+            ev_start = from_date.replace(day=1)
+            for _ in range(5):
+                ev_start = (ev_start - timedelta(days=1)).replace(day=1)
+            ev_first = timezone.make_aware(_datetime.combine(ev_start, _time(0, 0, 0)))
+
+        Trunc = TruncWeek if gran == 'week' else TruncMonth
+        evo_rows = _base_qs(ev_first, last_dt).annotate(
+            p=Trunc('report__workday__start_time')).values_list('p', 'category')
+        bucket = defaultdict(lambda: defaultdict(int))
+        for p, cat in evo_rows:
+            lp = timezone.localtime(p) if timezone.is_aware(p) else p
+            key = lp.strftime('%Y-%m-%d') if gran == 'week' else lp.strftime('%Y-%m')
+            bucket[key][cat] += 1
+        monthly = []
+        for key in sorted(bucket):
+            cats = bucket[key]
+            if gran == 'week':
+                lbl = _date.fromisoformat(key).strftime('%d/%m')
+            else:
+                y, mm = key.split('-')
+                lbl = f'{_MONTH_NAMES[int(mm) - 1][:3]} {y[2:]}'
+            monthly.append({
+                'month': key, 'label': lbl, 'total': sum(cats.values()),
+                'categories': {code: cats.get(code, 0) for code in cat_codes},
+            })
+
+        # Promedios por rol (referencia): sobre todos los empleados elegibles del
+        # período, para comparar al empleado con el promedio de Supervisores y PMs.
+        elig = {}  # emp_id -> role
+        for e in Employee.objects.filter(is_active=True, is_executive=False):
+            if e.role == Employee.ROLE_OTRO:
+                continue
+            elig[e.id] = e.role
+        ref_qs = ActivityItem.objects.filter(kind=kind, report__workday__employee_id__in=elig.keys())
+        if first_dt is not None:
+            ref_qs = ref_qs.filter(report__workday__start_time__gte=first_dt)
+        if last_dt is not None:
+            ref_qs = ref_qs.filter(report__workday__start_time__lte=last_dt)
+        ref_emp_cat = defaultdict(lambda: defaultdict(int))
+        ref_emp_reports = defaultdict(set)
+        for cat, eid, rid in ref_qs.values_list('category', 'report__workday__employee_id', 'report_id'):
+            ref_emp_cat[eid][cat] += 1
+            ref_emp_reports[eid].add(rid)
+        role_counter = defaultdict(lambda: defaultdict(int))
+        role_total = defaultdict(int)
+        role_emps = defaultdict(set)
+        role_rdays = defaultdict(int)
+        for eid, ctr in ref_emp_cat.items():
+            role = elig[eid]
+            role_emps[role].add(eid)
+            role_rdays[role] += len(ref_emp_reports[eid])
+            for c, n in ctr.items():
+                role_counter[role][c] += n
+                role_total[role] += n
+        by_role = []
+        for role in (Employee.ROLE_SUPERVISOR, Employee.ROLE_PROJECT_MANAGER):
+            if not role_total.get(role):
+                continue
+            n = len(role_emps[role]) or 1
+            rd = role_rdays[role]
+            by_role.append({
+                'role': role,
+                'label': Employee.ROLE_LABELS[role],
+                'total': role_total[role],
+                'categories': {code: role_counter[role].get(code, 0) for code in cat_codes},
+                'n_emps': len(role_emps[role]),
+                'avg_total': round(role_total[role] / n, 1),
+                'avg_reports': round(rd / n, 1),
+                'avg_perday': round(role_total[role] / rd, 1) if rd else 0,
+                'avg_categories': {code: round(role_counter[role].get(code, 0) / n, 1) for code in cat_codes},
+            })
+
+        # Mismo shape que /estadisticas/ con un empleado seleccionado: el empleado
+        # logueado es siempre el "seleccionado", para reusar el render de esa página.
+        self_cats = {code: cat_counter.get(code, 0) for code in cat_codes}
+        selected_employee = {
+            'id': employee.id, 'name': employee.full_name, 'role': employee.role,
+            'total': total_items, 'categories': self_cats,
+        }
+        employees = [{
+            'id': employee.id, 'name': employee.full_name, 'role': employee.role,
+            'total': total_items, 'reports': len(report_ids),
+            'last_date': timezone.localtime(last_dt_seen).strftime('%d/%m/%Y') if last_dt_seen else '',
+            'top_category': max(self_cats, key=self_cats.get) if total_items else '',
+            'categories': self_cats,
+        }]
+
+        return Response({
+            'label': label, 'period': period, 'kind': kind, 'granularity': gran,
+            'total_items': total_items, 'total_reports': len(report_ids),
+            'category_labels': cat_labels, 'category_colors': cat_colors,
+            'categories': categories, 'monthly': monthly,
+            'by_role': by_role, 'selected_employee': selected_employee, 'employees': employees,
+            'by_project':     _tag_breakdown(_base_qs(first_dt, last_dt), 'project', split_by_sede=True),
+            'by_location':    _tag_breakdown(_base_qs(first_dt, last_dt), 'location'),
+            'by_deliverable': _tag_breakdown(_base_qs(first_dt, last_dt), 'deliverable', split_by_sede=True),
+        })
 
 
 def _xls_sheet_name(nombre):
@@ -1018,6 +2152,10 @@ class ReporteExportView(APIView):
         else:
             label = f'{from_date.strftime("%d-%m-%Y")}__{to_date.strftime("%d-%m-%Y")}'
 
+        today = local_now.date()
+        if to_date > today:
+            to_date = today
+
         first_dt = timezone.make_aware(_datetime.combine(from_date, _time(0, 0, 0)))
         last_dt  = timezone.make_aware(_datetime.combine(to_date,   _time(23, 59, 59)))
 
@@ -1028,7 +2166,7 @@ class ReporteExportView(APIView):
         xls_wd_lookup = {}
         for wd in Workday.objects.filter(
             employee__is_active=True, employee__is_executive=False,
-            status=Workday.STATUS_COMPLETED,
+            status__in=[Workday.STATUS_COMPLETED, Workday.STATUS_INCOMPLETE],
             start_time__gte=first_dt, start_time__lte=last_dt,
         ).select_related('employee'):
             ls = timezone.localtime(wd.start_time)
@@ -1092,6 +2230,7 @@ class ReporteExportView(APIView):
                     row_data = [day.strftime('%d-%m-%Y'), _DAY_NAMES[day.weekday()], '', '', '', '', '']
                 groups[emp_counter]['rows'].append({
                     'data': row_data, 'emp_id': emp.id, 'date': day,
+                    'no_cerro': bool(wd and wd.auto_closed),
                 })
 
         import openpyxl
@@ -1212,14 +2351,15 @@ class ReporteExportView(APIView):
                 # Comment col 8
                 leaves_c = xls_leaves_lookup.get((row_obj['emp_id'], row_obj['date']), [])
                 notes_c  = xls_notes_lookup.get(row_obj['date'], [])
-                comment  = ' · '.join(leaves_c + notes_c)
+                marks    = ['No cerró jornada'] if row_obj.get('no_cerro') else []
+                comment  = ' · '.join(marks + leaves_c + notes_c)
                 cc = ws.cell(row=r, column=8, value=comment)
                 cc.fill = _fill(row_bg)
                 cc.border = _border()
                 cc.alignment = _align('left', wrap=True)
                 if comment:
                     cc.font = _font(
-                        color=CC_LEAVE if leaves_c else CC_NOTE,
+                        color=CC_RED if row_obj.get('no_cerro') else (CC_LEAVE if leaves_c else CC_NOTE),
                         size=9, italic=True,
                     )
 
@@ -1251,558 +2391,236 @@ class ReporteExportView(APIView):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  CERTIFICADO DE PAGO — replica template.xlsx (PL + hojas 1..N por empleado)
+#  CERTIFICADO DE PAGO — rellena templates/plantilla.xlsx con los datos reales
 # ════════════════════════════════════════════════════════════════════════════
 
-CERT_RED           = 'FFFF0000'
-CERT_WHITE         = 'FFFFFFFF'
-CERT_BLACK         = 'FF000000'
+CERT_TEMPLATE_PATH = os.path.join(settings.BASE_DIR, 'templates', 'plantilla.xlsx')
 CERT_EXCHANGE_RATE = 0.461310893326238
-CERT_WORKDAYS      = 22
-CERT_CATERING_FEE  = 1.16
-CERT_CLIENT        = 'EMBOL S.A. / GERENCIA DE OPERACIONES E INNOVACION TECNOLOGICA'
-CERT_SERVICE       = 'SERVICIO DE SUPERVISION DE PROYECTOS'
-CERT_CURRENCY      = 'Bolivianos'
-CERT_ACCT_FMT      = '_(* #,##0.00_);_(* \\(#,##0.00\\);_(* "-"??_);_(@_)'
 
-# (item, descripción, día_ida, día_regreso, días, P.U. (formula o número), cantidad)
-CERT_TRAVEL_ROWS = [
-    (1, 'Scz-Lpz-Scz',               None, None, None, '=852*2',  None),
-    (2, 'Scz-Cba-Scz',               22,   23,   None, '=1021*2', 1),
-    (3, 'Scz-Tja-Scz',               None, None, None, '=851*2',  None),
-    (4, 'Lpz-Cba-Lpz',               None, None, None, '=443*2',  None),
-    (5, 'Alojamiento y Alimentación', 22,   23,   1,    350,       None),
-]
-
-# (item, descripción, cantidad, costo_unitario)
-CERT_EQUIPMENT_ROWS = [
-    (1, 'Dotación de Equipos de Computación i5/i7 de ÚLTIMA GENERACIÓN con Licencia Software Basico - Contrato anual.', 11, 785),
-    (2, 'Dotación de Equipos de Computación i5/i7 de ÚLTIMA GENERACIÓN con Licencia Software Especializado de diseño - Contrato anual.', 0, 4857.5),
-]
+# Geometría de la plantilla (creada para 12 empleados y un mes de 30 días)
+CERT_T_DAYS       = 30   # filas de días en las hojas de empleado (10..39)
+CERT_T_EMPLOYEES  = 12   # filas de empleados en PL (14..25) y hojas '1'..'12'
+CERT_E_FIRST_ROW  = 10   # primera fila de datos en hoja de empleado
+CERT_PL_FIRST_ROW = 14   # primera fila de empleados en PL
+CERT_MAX_DAYS     = 31   # columnas de días disponibles en PL (F..AJ)
+# Filas de empleados por ciudad en las planillas de alimentación de la plantilla
+CERT_T_CATERING   = {'LPZ': 3, 'CBA': 3, 'SCZ': 6}
+CERT_DATE_FMT     = 'dd-mm-yyyy'
 
 
-def _cert_side(color=CERT_BLACK):
-    from openpyxl.styles import Side
-    return Side(style='thin', color=color)
+def _cert_date_cell(ws, row, col, value):
+    """Escribe una fecha con formato dd-mm-yyyy."""
+    cell = ws.cell(row=row, column=col)
+    cell.value = value
+    cell.number_format = CERT_DATE_FMT
+    return cell
 
 
-def _cert_border_all(color=CERT_BLACK):
-    from openpyxl.styles import Border
-    s = _cert_side(color)
-    return Border(left=s, right=s, top=s, bottom=s)
+def _cert_copy_row_style(ws, src_r, dst_r, max_col):
+    from copy import copy
+    for c in range(1, max_col + 1):
+        ws.cell(row=dst_r, column=c)._style = copy(ws.cell(row=src_r, column=c)._style)
+    src_h = ws.row_dimensions[src_r].height
+    if src_h is not None:
+        ws.row_dimensions[dst_r].height = src_h
 
 
-def _cert_header_style(cell, size=11, h='center', v='center', wrap=True):
-    from openpyxl.styles import Font, PatternFill, Alignment
-    cell.fill = PatternFill('solid', fgColor=CERT_RED)
-    cell.font = Font(name='Calibri', size=size, bold=True, color=CERT_WHITE)
-    cell.alignment = Alignment(horizontal=h, vertical=v, wrap_text=wrap)
-    cell.border = _cert_border_all()
+def _cert_resize_rows(ws, first_row, old_count, new_count, max_col):
+    """Inserta/elimina filas para que el bloque que empieza en first_row pase de
+    old_count a new_count filas. openpyxl no desplaza merges ni alturas de fila
+    al insertar/eliminar, así que se reubican a mano."""
+    n = new_count - old_count
+    if n == 0:
+        return
+    boundary = first_row + old_count  # primera fila debajo del bloque original
+
+    moved = []
+    for m in list(ws.merged_cells.ranges):
+        min_c, min_r, max_c, max_r = m.bounds
+        if min_r >= boundary:
+            moved.append((min_c, min_r, max_c, max_r))
+            ws.unmerge_cells(start_row=min_r, start_column=min_c,
+                             end_row=max_r, end_column=max_c)
+
+    if n > 0:
+        ws.insert_rows(boundary, n)
+        for r in range(boundary, boundary + n):
+            _cert_copy_row_style(ws, first_row, r, max_col)
+    else:
+        ws.delete_rows(first_row + new_count, -n)
+        for r in range(first_row + new_count, boundary):
+            if r in ws.row_dimensions:
+                ws.row_dimensions[r].height = None
+
+    for min_c, min_r, max_c, max_r in moved:
+        ws.merge_cells(start_row=min_r + n, start_column=min_c,
+                       end_row=max_r + n, end_column=max_c)
+
+    heights = sorted(((r, d.height) for r, d in ws.row_dimensions.items()
+                      if r >= boundary and d.height is not None),
+                     reverse=(n > 0))
+    for r, h in heights:
+        ws.row_dimensions[r].height = None
+        ws.row_dimensions[r + n].height = h
 
 
-def _cert_body_style(cell, h='center', v='center', bold=False, num_fmt=None, wrap=False):
-    from openpyxl.styles import Font, Alignment
-    cell.font = Font(name='Calibri', size=11, bold=bold, color=CERT_BLACK)
-    cell.alignment = Alignment(horizontal=h, vertical=v, wrap_text=wrap)
-    cell.border = _cert_border_all()
-    if num_fmt:
-        cell.number_format = num_fmt
+def _cert_day_cell(ws, row, d, value):
+    """Escribe la celda del día d (1..31) en una fila de la PL. La columna del
+    día 31 (AJ) está vacía en la plantilla base: hereda el estilo del día 30."""
+    col = 5 + d
+    if d == 31:
+        from copy import copy
+        ws.cell(row=row, column=col)._style = copy(ws.cell(row=row, column=col - 1)._style)
+    # asignación directa: ws.cell(value=None) NO limpia la celda
+    ws.cell(row=row, column=col).value = value
 
 
-def _cert_merge_header(ws, range_str, text, size=11, h='center', v='center', wrap=True):
-    """Merge a range, set text in top-left, apply red header style to all cells inside."""
-    ws.merge_cells(range_str)
-    from openpyxl.utils.cell import range_boundaries
-    min_c, min_r, max_c, max_r = range_boundaries(range_str)
-    top_left = ws.cell(row=min_r, column=min_c, value=text)
-    _cert_header_style(top_left, size=size, h=h, v=v, wrap=wrap)
-    # Apply border to every cell in range (merged cells need individual borders for display)
-    for r in range(min_r, max_r + 1):
-        for c in range(min_c, max_c + 1):
-            cell = ws.cell(row=r, column=c)
-            if cell is not top_left:
-                cell.border = _cert_border_all()
+def _cert_fill_employee_sheet(ws, item, emp, dates, wd_lookup, leaves_lookup, notes_lookup):
+    """Rellena una hoja de empleado de la plantilla con los días del período."""
+    first = CERT_E_FIRST_ROW
+    ndays = len(dates)
+    _cert_resize_rows(ws, first, CERT_T_DAYS, ndays, max_col=8)
 
+    ws['B4'] = item
+    ws['B5'] = emp.full_name
+    ws['B6'] = emp.cargo or ''
+    ws['B7'] = float(emp.haber_basico) if emp.haber_basico else 0
 
-def _cert_merge_body(ws, range_str, value=None, h='center', v='center', bold=False, num_fmt=None, wrap=False):
-    ws.merge_cells(range_str)
-    from openpyxl.utils.cell import range_boundaries
-    min_c, min_r, max_c, max_r = range_boundaries(range_str)
-    top_left = ws.cell(row=min_r, column=min_c, value=value)
-    _cert_body_style(top_left, h=h, v=v, bold=bold, num_fmt=num_fmt, wrap=wrap)
-    for r in range(min_r, max_r + 1):
-        for c in range(min_c, max_c + 1):
-            cell = ws.cell(row=r, column=c)
-            if cell is not top_left:
-                cell.border = _cert_border_all()
-
-
-def _cert_col_letter(idx):
-    from openpyxl.utils import get_column_letter
-    return get_column_letter(idx)
-
-
-def _build_cert_employee_sheet(wb, item, emp, year, month, wd_lookup, leaves_lookup, notes_lookup):
-    """Replicates template sheet '1' for one employee."""
-    from openpyxl.styles import Font, Alignment
-
-    ws = wb.create_sheet(title=str(item))
-
-    # Column widths (from template)
-    widths = {'A': 15.89, 'B': 14.33, 'C': 14.11, 'D': 12.33, 'E': 13.00,
-              'F': 14.89, 'G': 17.44, 'H': 15.33}
-    for letter, w in widths.items():
-        ws.column_dimensions[letter].width = w
-
-    ws.row_dimensions[3].height = 4.8
-    ws.row_dimensions[8].height = 4.8
-
-    # Title A2:H2
-    _cert_merge_header(ws, 'A2:H2', 'PLANILLA CONTROL DE ASISTENCIA', size=11, h='center')
-
-    # Info rows 4-7 (label en col A con estilo rojo, valor en col B)
-    info = [
-        ('ITEM', item, None),
-        ('NOMBRE', emp.full_name, None),
-        ('CARGO', emp.cargo or '', None),
-        ('HABER BASICO', float(emp.haber_basico) if emp.haber_basico else 0, CERT_ACCT_FMT),
-    ]
-    for i, (lbl, val, nfmt) in enumerate(info):
-        r = 4 + i
-        ca = ws.cell(row=r, column=1, value=lbl)
-        _cert_header_style(ca, size=11, h='left')
-        cb = ws.cell(row=r, column=2, value=val)
-        _cert_body_style(cb, h='left', num_fmt=nfmt)
-
-    # Column headers row 9
-    col_headers = ['FECHA', 'DIA', 'HORA INGRESO', 'HORA SALIDA',
-                   'REFRIGERIO', 'HORAS TRABAJO', 'ATRASOS MINUTOS', 'OBSERVACIONES']
-    for i, h in enumerate(col_headers, start=1):
-        c = ws.cell(row=9, column=i, value=h)
-        _cert_header_style(c, size=11, h='center')
-
-    # Data rows
-    days_in_month = _cal.monthrange(year, month)[1]
-    first_data = 10
-    last_data = first_data + days_in_month - 1
-
-    for d in range(1, days_in_month + 1):
-        r = first_data + d - 1
-        day_date = _date(year, month, d)
-        wd = wd_lookup.get((emp.id, day_date))
-
-        ca = ws.cell(row=r, column=1, value=day_date)
-        _cert_body_style(ca, h='center', num_fmt='yyyy-mm-dd')
-
-        cb = ws.cell(row=r, column=2, value=f'=+A{r}')
-        _cert_body_style(cb, h='center', num_fmt='dddd')
-
+    for i, day in enumerate(dates):
+        r = first + i
+        wd = wd_lookup.get((emp.id, day))
+        _cert_date_cell(ws, r, 1, day)
+        ws.cell(row=r, column=2, value=f'=+A{r}')
         if wd:
             ls = timezone.localtime(wd.start_time)
             le = timezone.localtime(wd.end_time) if wd.end_time else None
-            cc = ws.cell(row=r, column=3, value=_time(ls.hour, ls.minute))
-            cd = ws.cell(row=r, column=4, value=_time(le.hour, le.minute) if le else None)
-            ce = ws.cell(row=r, column=5, value=1)
+            hora_in, hora_out, refrigerio = _time(ls.hour, ls.minute), le and _time(le.hour, le.minute), 1
         else:
-            cc = ws.cell(row=r, column=3)
-            cd = ws.cell(row=r, column=4)
-            ce = ws.cell(row=r, column=5)
-        _cert_body_style(cc, h='center', num_fmt='hh:mm')
-        _cert_body_style(cd, h='center', num_fmt='hh:mm')
-        _cert_body_style(ce, h='center')
+            hora_in = hora_out = refrigerio = None
+        # asignación directa: ws.cell(value=None) NO limpia la celda
+        ws.cell(row=r, column=3).value = hora_in
+        ws.cell(row=r, column=4).value = hora_out
+        ws.cell(row=r, column=5).value = refrigerio
+        ws.cell(row=r, column=6, value=f'=+(D{r}-C{r})*24-E{r}')
+        ws.cell(row=r, column=7,
+                value=f'=+IF(C{r}>0.333333333333333,+(C{r}-0.333333333333333)*24*60,"0")')
+        marks = ['No cerró jornada'] if (wd and wd.auto_closed) else []
+        obs = ' · '.join(marks + leaves_lookup.get((emp.id, day), []) + notes_lookup.get(day, []))
+        ws.cell(row=r, column=8).value = obs or None
 
-        cf = ws.cell(row=r, column=6, value=f'=+(D{r}-C{r})*24-E{r}')
-        _cert_body_style(cf, h='center', num_fmt='0.00')
-
-        cg = ws.cell(row=r, column=7,
-                     value=f'=+IF(C{r}>0.333333333333333,+(C{r}-0.333333333333333)*24*60,"0")')
-        _cert_body_style(cg, h='center', num_fmt='0')
-
-        leaves = leaves_lookup.get((emp.id, day_date), [])
-        notes  = notes_lookup.get(day_date, [])
-        obs = ' · '.join(leaves + notes)
-        ch = ws.cell(row=r, column=8, value=obs)
-        _cert_body_style(ch, h='left', wrap=True)
-
-    # Totals rows
-    trows = [
-        ('TOTAL DIAS TRABAJADOS',  f'=+COUNT(C{first_data}:C{last_data})', '0'),
-        ('TOTAL HORAS TRABAJADAS', f'=SUM(F{first_data}:F{last_data})',     '0.00'),
-        ('ATRASOS',                f'=SUM(G{first_data}:G{last_data})',     '0'),
-    ]
-    for i, (label, formula, nfmt) in enumerate(trows):
-        r = last_data + 1 + i
-        _cert_merge_header(ws, f'A{r}:B{r}', label, size=11, h='right')
-        _cert_merge_body(ws, f'C{r}:G{r}', value=formula, h='center', num_fmt=nfmt, bold=True)
+    last = first + ndays - 1
+    ws.cell(row=last + 1, column=3, value=f'=+COUNT(C{first}:C{last})')
+    ws.cell(row=last + 2, column=3, value=f'=SUM(F{first}:F{last})')
+    ws.cell(row=last + 3, column=3, value=f'=SUM(G{first}:G{last})')
 
 
-def _build_cert_pl_sheet(wb, employees, year, month, wd_lookup):
-    """Replicates template sheet 'PL1' (renamed to 'PL') as consolidation."""
-    from openpyxl.styles import Font, Alignment, PatternFill
+def _cert_fill_pl_sheet(ws, employees, dates, period_value):
+    """Rellena la hoja PL (certificado consolidado) de la plantilla."""
+    n_emp = len(employees)
+    ndays = len(dates)
+    first = CERT_PL_FIRST_ROW
+    start_val = dates[0]
 
-    ws = wb.create_sheet(title='PL', index=0)
+    _cert_date_cell(ws, 1, 39, _local_now().date())  # AM1
+    ws['Y3'] = period_value
 
-    N = len(employees)
-    days_in_month = _cal.monthrange(year, month)[1]
+    def _fill_day_header(row):
+        for d in range(1, CERT_MAX_DAYS + 1):
+            _cert_day_cell(ws, row, d, dates[d - 1].day if d <= ndays else None)
 
-    # Widths (from template PL1)
-    widths_explicit = {'A': 7.66, 'B': 42.78, 'C': 29.44, 'D': 13.22, 'E': 13.44, 'F': 5.78, 'AL': 15.89}
-    for letter, w in widths_explicit.items():
-        ws.column_dimensions[letter].width = w
-    for col_idx in range(7, 37):  # G..AJ
-        ws.column_dimensions[_cert_col_letter(col_idx)].width = 13.0
-
-    # Row heights (selected)
-    heights = {
-        1: 23.4, 2: 15.0, 3: 18.0, 4: 18.0, 5: 18.0, 6: 18.0, 8: 23.4, 10: 31.2, 11: 5.4,
-    }
-    for r, h in heights.items():
-        ws.row_dimensions[r].height = h
-
-    # ── Section 1: Header (rows 1-10) ────────────────────────────
-    _cert_merge_header(ws, 'D1:AK2', 'CERTIFICADO DE PAGO', size=18, h='center', v='center')
-
-    ws.merge_cells('A1:C8')  # left margin
-
-    # Fecha / Certificado number top-right
-    ws['AL1'] = 'Fecha:'
-    _cert_body_style(ws['AL1'], h='left', v='top')
-    ws['AL1'].font = Font(name='Calibri', size=14, bold=False, color=CERT_BLACK)
-    ws['AM1'] = _local_now().date()
-    _cert_body_style(ws['AM1'], h='left', v='top', num_fmt='yyyy-mm-dd')
-
-    _cert_merge_body(ws, 'AL2:AM7', value=1, h='center', v='center', bold=True)
-    _cert_merge_header(ws, 'AL8:AM8', 'CERTIFICADO', size=11, h='center')
-
-    # Cliente
-    ws['D3'] = 'CLIENTE:'
-    _cert_body_style(ws['D3'], h='left', v='top', bold=True)
-    _cert_merge_body(ws, 'E3:V4', value=CERT_CLIENT, h='left', v='center', wrap=True)
-
-    # Periodo
-    ws['W3'] = 'PERIODO:'
-    _cert_body_style(ws['W3'], h='left', v='center', bold=True)
-    _cert_merge_body(ws, 'Y3:AK4', value=_date(year, month, 1), h='center', v='center', num_fmt='mmmm yyyy')
-
-    # Servicio
-    ws['D5'] = 'SERVICIO:'
-    _cert_body_style(ws['D5'], h='left', v='top', bold=True)
-    _cert_merge_body(ws, 'E5:V6', value=CERT_SERVICE, h='left', v='center', wrap=True)
-
-    # Días laborables
-    ws['W5'] = 'DIAS LABORABLES:'
-    _cert_body_style(ws['W5'], h='left', v='center', bold=True)
-    _cert_merge_body(ws, 'AB5:AK6', value=CERT_WORKDAYS, h='left', v='center', bold=True)
-    ws['AB5'].font = Font(name='Calibri', size=18, bold=True, color=CERT_BLACK)
-
-    # Orden de compra
-    ws['D7'] = 'ORDEN DE COMPRA:'
-    _cert_body_style(ws['D7'], h='left', v='center', bold=True)
-    _cert_merge_body(ws, 'F7:V8', value='', h='left', v='center')
-
-    # Moneda
-    ws['W7'] = 'MONEDA:'
-    _cert_body_style(ws['W7'], h='left', v='center', bold=True)
-    _cert_merge_body(ws, 'Y7:AK8', value=CERT_CURRENCY, h='left', v='center')
-
-    # Section title
-    _cert_merge_header(ws, 'A10:AM10', 'PLANILLA DE PERSONAL', size=24, h='center')
-
-    # ── Section 2: Planilla (rows 12-..) ─────────────────────────
-    pl_header_r = 12
-    pl_days_r   = 13
-    pl_first    = 14
-    pl_last     = 13 + N
-    pl_subtotal = pl_last + 1
-
-    # Header row 12 (merged with row 13 for some cols)
-    _cert_merge_header(ws, f'A{pl_header_r}:A{pl_days_r}', 'ITEM', size=11, h='center')
-    _cert_merge_header(ws, f'B{pl_header_r}:B{pl_days_r}', 'NOMBRE', size=11, h='center')
-    _cert_merge_header(ws, f'C{pl_header_r}:C{pl_days_r}', 'CARGO', size=11, h='center')
-    _cert_merge_header(ws, f'D{pl_header_r}:D{pl_days_r}', 'FECHA DE INICIO', size=11, h='center')
-    _cert_merge_header(ws, f'E{pl_header_r}:E{pl_days_r}', 'HABER BASICO', size=11, h='center')
-    _cert_merge_header(ws, f'F{pl_header_r}:AJ{pl_header_r}', 'DIAS', size=11, h='center')
-    _cert_merge_header(ws, f'AK{pl_header_r}:AK{pl_days_r}', 'TOTAL DIAS', size=11, h='center')
-    _cert_merge_header(ws, f'AL{pl_header_r}:AL{pl_days_r}', 'HABER GANADO', size=11, h='center')
-    _cert_merge_header(ws, f'AM{pl_header_r}:AM{pl_days_r}', 'FACTURADO', size=11, h='center')
-
-    # Day numbers row 13
-    for d in range(1, 32):
-        col = 5 + d  # F=6 → day 1
-        cell = ws.cell(row=pl_days_r, column=col)
-        if d <= days_in_month:
-            cell.value = d
-        _cert_header_style(cell, size=11, h='center')
-
-    # Employee rows
-    month_start = _date(year, month, 1)
-    for idx, emp in enumerate(employees, start=1):
-        r = 13 + idx
-        ws.cell(row=r, column=1, value=idx)
-        _cert_body_style(ws.cell(row=r, column=1), h='center')
-        ws.cell(row=r, column=2, value=emp.full_name)
-        _cert_body_style(ws.cell(row=r, column=2), h='left')
-        ws.cell(row=r, column=3, value=emp.cargo or '')
-        _cert_body_style(ws.cell(row=r, column=3), h='left')
-        ws.cell(row=r, column=4, value=month_start)
-        _cert_body_style(ws.cell(row=r, column=4), h='center', num_fmt='yyyy-mm-dd')
-        ws.cell(row=r, column=5, value=float(emp.haber_basico) if emp.haber_basico else 0)
-        _cert_body_style(ws.cell(row=r, column=5), h='center', num_fmt=CERT_ACCT_FMT)
-
-        # Days F..AJ (31 columns; use formula linking to employee sheet)
-        for d in range(1, 32):
-            col = 5 + d
-            cell = ws.cell(row=r, column=col)
-            if d <= days_in_month:
-                emp_sheet_row = 9 + d  # employee sheet day rows: 10..10+days-1
-                cell.value = f'=+IF(\'{idx}\'!F{emp_sheet_row}>1,"SI","NO")'
-            _cert_body_style(cell, h='center')
-
-        # AK: COUNTIF(F:AJ, "SI")
-        ws.cell(row=r, column=37, value=f'=+COUNTIF(F{r}:AJ{r},"SI")')
-        _cert_body_style(ws.cell(row=r, column=37), h='center')
-        # AL: AK/$AB$5*E
-        ws.cell(row=r, column=38, value=f'=+AK{r}/$AB$5*E{r}')
-        _cert_body_style(ws.cell(row=r, column=38), h='center', num_fmt=CERT_ACCT_FMT)
-        # AM: AL/exchange_rate
-        ws.cell(row=r, column=39, value=f'=+AL{r}/{CERT_EXCHANGE_RATE}')
-        _cert_body_style(ws.cell(row=r, column=39), h='center', num_fmt=CERT_ACCT_FMT)
-
-        ws.row_dimensions[r].height = 19.95
-
-    # Subtotal AM
-    ws.cell(row=pl_subtotal, column=39, value=f'=SUM(AM14:AM{pl_last})' if N > 0 else 0)
-    _cert_body_style(ws.cell(row=pl_subtotal, column=39), h='center', bold=True, num_fmt=CERT_ACCT_FMT)
-    ws.row_dimensions[pl_subtotal].height = 22.2
-
-    pl_subtotal_ref = f'AM{pl_subtotal}'
-
-    # shift offset for downstream sections (template base: 26)
-    shift = pl_subtotal - 26
-
-    # ── Section 3: Pasajes y Viáticos + Equipos (rows 28..37) ─────
-    travel_title_r    = 28 + shift
-    travel_detail_r   = 30 + shift
-    travel_first_r    = 32 + shift
-    travel_last_r     = 36 + shift
-    travel_subtotal_r = 37 + shift
-
-    ws.row_dimensions[travel_title_r].height = 31.2
-
-    # Titles
-    _cert_merge_header(ws, f'A{travel_title_r}:S{travel_title_r}', 'PASAJES Y VIATICOS', size=24, h='center')
-    _cert_merge_header(ws, f'U{travel_title_r}:AM{travel_title_r}', 'ALQUILER EQUIPOS DE COMPUTACION', size=24, h='center')
-
-    # Pasajes detail header (rows 30-31 merged)
-    _cert_merge_header(ws, f'A{travel_detail_r}:A{travel_detail_r+1}', 'ITEM')
-    _cert_merge_header(ws, f'B{travel_detail_r}:B{travel_detail_r+1}', 'NOMBRE')
-    _cert_merge_header(ws, f'C{travel_detail_r}:C{travel_detail_r+1}', 'DESCRIPCION')
-    _cert_merge_header(ws, f'D{travel_detail_r}:D{travel_detail_r+1}', 'FECHA IDA')
-    _cert_merge_header(ws, f'E{travel_detail_r}:E{travel_detail_r+1}', 'FECHA REGRESO')
-    _cert_merge_header(ws, f'F{travel_detail_r}:G{travel_detail_r+1}', 'DIAS')
-    _cert_merge_header(ws, f'H{travel_detail_r}:J{travel_detail_r+1}', 'P.U.\n(Variable)')
-    _cert_merge_header(ws, f'K{travel_detail_r}:M{travel_detail_r+1}', 'CANTIDAD')
-    _cert_merge_header(ws, f'N{travel_detail_r}:O{travel_detail_r+1}', 'COSTO TOTAL')
-    _cert_merge_header(ws, f'P{travel_detail_r}:S{travel_detail_r+1}', 'FACTURADO')
-
-    # Equipos detail header
-    _cert_merge_header(ws, f'U{travel_detail_r}:V{travel_detail_r+1}', 'ITEM')
-    _cert_merge_header(ws, f'W{travel_detail_r}:AI{travel_detail_r+1}', 'DESCRIPCION')
-    _cert_merge_header(ws, f'AJ{travel_detail_r}:AK{travel_detail_r+1}', 'CANTIDAD')
-    _cert_merge_header(ws, f'AL{travel_detail_r}:AL{travel_detail_r+1}', 'COSTO TOTAL')
-    _cert_merge_header(ws, f'AM{travel_detail_r}:AM{travel_detail_r+1}', 'FACTURADO')
-
-    # Travel rows
-    for i, (item, desc, dia_ida, dia_reg, dias, pu, qty) in enumerate(CERT_TRAVEL_ROWS):
-        r = travel_first_r + i
+    def _fill_person_row(r, item, emp, pu=None):
         ws.cell(row=r, column=1, value=item)
-        _cert_body_style(ws.cell(row=r, column=1), h='center')
-        _cert_body_style(ws.cell(row=r, column=2), h='left')
-        ws.cell(row=r, column=3, value=desc)
-        _cert_body_style(ws.cell(row=r, column=3), h='left', wrap=True)
-        # Fechas ida/regreso
-        if dia_ida:
-            ida_day = min(dia_ida, days_in_month)
-            ws.cell(row=r, column=4, value=_date(year, month, ida_day))
-            _cert_body_style(ws.cell(row=r, column=4), h='center', num_fmt='yyyy-mm-dd')
+        ws.cell(row=r, column=2, value=emp.full_name)
+        ws.cell(row=r, column=3, value=emp.cargo or '')
+        _cert_date_cell(ws, r, 4, start_val)
+        if pu is None:
+            ws.cell(row=r, column=5, value=float(emp.haber_basico) if emp.haber_basico else 0)
         else:
-            _cert_body_style(ws.cell(row=r, column=4), h='center')
-        if dia_reg:
-            reg_day = min(dia_reg, days_in_month)
-            ws.cell(row=r, column=5, value=_date(year, month, reg_day))
-            _cert_body_style(ws.cell(row=r, column=5), h='center', num_fmt='yyyy-mm-dd')
-        else:
-            _cert_body_style(ws.cell(row=r, column=5), h='center')
-        # Días F:G merged
-        _cert_merge_body(ws, f'F{r}:G{r}', value=dias, h='center')
-        # P.U. H:J merged
-        _cert_merge_body(ws, f'H{r}:J{r}', value=pu, h='center', num_fmt=CERT_ACCT_FMT)
-        # Cantidad K:M
-        _cert_merge_body(ws, f'K{r}:M{r}', value=qty, h='center')
-        # Costo total N:O
-        if qty is not None:
-            costo = f'=+K{r}*H{r}' if dias is None else f'=+F{r}*H{r}'
-        elif dias is not None:
-            costo = f'=+F{r}*H{r}'
-        else:
-            costo = f'=+K{r}*H{r}'
-        _cert_merge_body(ws, f'N{r}:O{r}', value=costo, h='center', num_fmt=CERT_ACCT_FMT)
-        # Facturado P:S
-        _cert_merge_body(ws, f'P{r}:S{r}', value=f'=+N{r}*1.25', h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+            ws.cell(row=r, column=5, value=pu)
+        for d in range(1, CERT_MAX_DAYS + 1):
+            v = None
+            if d <= ndays:
+                v = f'=+IF(\'{item}\'!F{CERT_E_FIRST_ROW + d - 1}>1,"SI","NO")'
+            _cert_day_cell(ws, r, d, v)
+        ws.cell(row=r, column=37, value=f'=+COUNTIF(F{r}:AJ{r},"SI")')
 
-    # Travel subtotal
-    _cert_merge_body(ws, f'P{travel_subtotal_r}:S{travel_subtotal_r}',
-                     value=f'=SUM(P{travel_first_r}:S{travel_last_r})',
-                     h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+    # ── Planilla de personal (plantilla: filas 14..25, subtotal 26) ──
+    _cert_resize_rows(ws, first, CERT_T_EMPLOYEES, n_emp, max_col=39)
+    _fill_day_header(first - 1)
+    for idx, emp in enumerate(employees, start=1):
+        r = first + idx - 1
+        _fill_person_row(r, idx, emp)
+        ws.cell(row=r, column=38, value=f'=+AK{r}/$AB$5*E{r}')
+        ws.cell(row=r, column=39, value=f'=+AL{r}/{CERT_EXCHANGE_RATE}')
+    pl_sub_r = first + n_emp
+    ws.cell(row=pl_sub_r, column=39,
+            value=f'=SUM(AM{first}:AM{pl_sub_r - 1})' if n_emp else 0)
 
-    # Equipment rows (only 2; use first two travel rows worth of space)
-    for i, (item, desc, qty, cu) in enumerate(CERT_EQUIPMENT_ROWS):
-        r = travel_first_r + i
-        _cert_merge_body(ws, f'U{r}:V{r}', value=item, h='center')
-        _cert_merge_body(ws, f'W{r}:AI{r}', value=desc, h='left', wrap=True)
-        _cert_merge_body(ws, f'AJ{r}:AK{r}', value=qty, h='center')
-        ws.cell(row=r, column=38, value=cu)
-        _cert_body_style(ws.cell(row=r, column=38), h='center', num_fmt=CERT_ACCT_FMT)
+    shift = n_emp - CERT_T_EMPLOYEES
+
+    # ── Pasajes y viáticos / equipos (plantilla: filas 32..37) ───────
+    t_first = 32 + shift
+    base = dates[0]
+    dim = _cal.monthrange(base.year, base.month)[1]
+    ida = _date(base.year, base.month, min(22, dim))
+    reg = _date(base.year, base.month, min(23, dim))
+    for off in (1, 4):  # filas con fechas de viaje (33 y 36 en la plantilla)
+        _cert_date_cell(ws, t_first + off, 4, ida)
+        _cert_date_cell(ws, t_first + off, 5, reg)
+    for i in range(5):
+        r = t_first + i
+        ws.cell(row=r, column=14, value=f'=+F{r}*H{r}' if i == 4 else f'=+K{r}*H{r}')
+        ws.cell(row=r, column=16, value=f'=+N{r}*1.25')
+    travel_sub_r = t_first + 5
+    ws.cell(row=travel_sub_r, column=16, value=f'=SUM(P{t_first}:S{t_first + 4})')
+    for off in (0, 2):  # filas de equipos (32 y 34 en la plantilla)
+        r = t_first + off
         ws.cell(row=r, column=39, value=f'=+AL{r}*AJ{r}')
-        _cert_body_style(ws.cell(row=r, column=39), h='center', bold=True, num_fmt=CERT_ACCT_FMT)
+    eq_sub_r = t_first + 4
+    ws.cell(row=eq_sub_r, column=39, value=f'=SUM(AM{t_first}:AM{t_first + 3})')
 
-    # Equipment subtotal (at travel_first_r + len(CERT_EQUIPMENT_ROWS))
-    eq_subtotal_r = travel_first_r + len(CERT_EQUIPMENT_ROWS)
-    ws.cell(row=eq_subtotal_r, column=39,
-            value=f'=SUM(AM{travel_first_r}:AM{travel_first_r + len(CERT_EQUIPMENT_ROWS) - 1})')
-    _cert_body_style(ws.cell(row=eq_subtotal_r, column=39),
-                     h='center', bold=True, num_fmt=CERT_ACCT_FMT)
-
-    pl_travel_ref   = f'P{travel_subtotal_r}'
-    pl_equip_ref    = f'AM{eq_subtotal_r}'
-
-    # ── Catering sections (LPZ, CBA, SCZ) ────────────────────────
-    def _build_catering(section_title, city_code, title_row):
-        ws.row_dimensions[title_row].height = 31.2
-        _cert_merge_header(ws, f'A{title_row}:AK{title_row}', section_title, size=24, h='center')
-        # Fee cont cell
-        ws.cell(row=title_row, column=38, value='Fee Cont')
-        _cert_body_style(ws.cell(row=title_row, column=38), h='center', bold=True)
-        fee_cell = ws.cell(row=title_row, column=39, value=CERT_CATERING_FEE)
-        _cert_body_style(fee_cell, h='center', bold=True, num_fmt='0.00')
-        fee_ref = f'$AM${title_row}'
-
-        detail_r = title_row + 2
-        _cert_merge_header(ws, f'A{detail_r}:A{detail_r+1}', 'ITEM')
-        _cert_merge_header(ws, f'B{detail_r}:B{detail_r+1}', 'NOMBRE')
-        _cert_merge_header(ws, f'C{detail_r}:C{detail_r+1}', 'CARGO')
-        _cert_merge_header(ws, f'D{detail_r}:D{detail_r+1}', 'FECHA DE INICIO')
-        _cert_merge_header(ws, f'E{detail_r}:E{detail_r+1}', 'P.U. CATERING')
-        _cert_merge_header(ws, f'F{detail_r}:AJ{detail_r}', 'DIAS')
-        _cert_merge_header(ws, f'AK{detail_r}:AK{detail_r+1}', 'TOTAL DIAS')
-        _cert_merge_header(ws, f'AL{detail_r}:AL{detail_r+1}', 'COSTO TOTAL')
-        _cert_merge_header(ws, f'AM{detail_r}:AM{detail_r+1}', 'FACTURADO')
-
-        # Day numbers row
-        days_r = detail_r + 1
-        for d in range(1, 32):
-            col = 5 + d
-            cell = ws.cell(row=days_r, column=col)
-            if d <= days_in_month:
-                cell.value = d
-            _cert_header_style(cell, size=11, h='center')
-
-        # Employee rows for this city
-        city_employees = [(i + 1, e) for i, e in enumerate(employees) if e.ciudad == city_code]
-        first_emp_r = days_r + 1
-        last_emp_r  = first_emp_r + len(city_employees) - 1 if city_employees else first_emp_r
-
-        for i, (orig_item, emp) in enumerate(city_employees):
-            r = first_emp_r + i
-            ws.cell(row=r, column=1, value=orig_item)
-            _cert_body_style(ws.cell(row=r, column=1), h='center')
-            ws.cell(row=r, column=2, value=emp.full_name)
-            _cert_body_style(ws.cell(row=r, column=2), h='left')
-            ws.cell(row=r, column=3, value=emp.cargo or '')
-            _cert_body_style(ws.cell(row=r, column=3), h='left')
-            ws.cell(row=r, column=4, value=month_start)
-            _cert_body_style(ws.cell(row=r, column=4), h='center', num_fmt='yyyy-mm-dd')
-            ws.cell(row=r, column=5, value=25)
-            _cert_body_style(ws.cell(row=r, column=5), h='center', num_fmt=CERT_ACCT_FMT)
-            # Days from employee sheet
-            for d in range(1, 32):
-                col = 5 + d
-                cell = ws.cell(row=r, column=col)
-                if d <= days_in_month:
-                    emp_sheet_row = 9 + d
-                    cell.value = f'=+IF(\'{orig_item}\'!F{emp_sheet_row}>1,"SI","NO")'
-                _cert_body_style(cell, h='center')
-            ws.cell(row=r, column=37, value=f'=+COUNTIF(F{r}:AJ{r},"SI")')
-            _cert_body_style(ws.cell(row=r, column=37), h='center')
+    # ── Planillas de alimentación por ciudad ─────────────────────────
+    def _fill_catering(title_r, old_count, city_employees):
+        days_r = title_r + 3
+        first_emp = title_r + 4
+        count = len(city_employees)
+        _cert_resize_rows(ws, first_emp, old_count, count, max_col=39)
+        _fill_day_header(days_r)
+        for i, (item, emp) in enumerate(city_employees):
+            r = first_emp + i
+            _fill_person_row(r, item, emp, pu=25)
             ws.cell(row=r, column=38, value=f'=+AK{r}*E{r}')
-            _cert_body_style(ws.cell(row=r, column=38), h='center', num_fmt=CERT_ACCT_FMT)
-            ws.cell(row=r, column=39, value=f'=+AL{r}*{fee_ref}')
-            _cert_body_style(ws.cell(row=r, column=39), h='center', bold=True, num_fmt=CERT_ACCT_FMT)
-            ws.row_dimensions[r].height = 19.95
-
-        # Subtotal
-        sub_r = last_emp_r + 1 if city_employees else first_emp_r
-        if city_employees:
-            ws.cell(row=sub_r, column=39,
-                    value=f'=SUM(AM{first_emp_r}:AM{last_emp_r})')
-        else:
-            ws.cell(row=sub_r, column=39, value=0)
-        _cert_body_style(ws.cell(row=sub_r, column=39), h='center', bold=True, num_fmt=CERT_ACCT_FMT)
-
+            ws.cell(row=r, column=39, value=f'=+AL{r}*$AM${title_r}')
+        sub_r = first_emp + count
+        ws.cell(row=sub_r, column=39,
+                value=f'=SUM(AM{first_emp}:AM{sub_r - 1})' if count else 0)
         return sub_r
 
-    # Template LPZ title at row 39 (shift applied)
-    lpz_title_r = 39 + shift
-    lpz_sub_r = _build_catering('PLANILLA DE ALIMENTACION LA PAZ', 'LPZ', lpz_title_r)
+    # Las planillas de alimentación agrupan por Employee.ciudad; los empleados
+    # con CIUDAD_NONE ('Sin catering') no aparecen en ninguna
+    by_city = {code: [(i, e) for i, e in enumerate(employees, start=1) if e.ciudad == code]
+               for code in (Employee.CIUDAD_LPZ, Employee.CIUDAD_CBA, Employee.CIUDAD_SCZ)}
 
-    cba_title_r = lpz_sub_r + 2
-    cba_sub_r = _build_catering('PLANILLA DE ALIMENTACION CBA', 'CBA', cba_title_r)
+    lpz_sub_r = _fill_catering(39 + shift, CERT_T_CATERING[Employee.CIUDAD_LPZ],
+                               by_city[Employee.CIUDAD_LPZ])
+    cba_sub_r = _fill_catering(lpz_sub_r + 2, CERT_T_CATERING[Employee.CIUDAD_CBA],
+                               by_city[Employee.CIUDAD_CBA])
+    scz_sub_r = _fill_catering(cba_sub_r + 2, CERT_T_CATERING[Employee.CIUDAD_SCZ],
+                               by_city[Employee.CIUDAD_SCZ])
 
-    scz_title_r = cba_sub_r + 2
-    scz_sub_r = _build_catering('PLANILLA DE ALIMENTACION SCZ', 'SCZ', scz_title_r)
-
-    # ── Grand total ─────────────────────────────────────────────
+    # ── Total facturación y "Son:" ───────────────────────────────────
     total_r = scz_sub_r + 2
-    ws.row_dimensions[total_r].height = 25.8
-    _cert_merge_body(ws, f'W{total_r}:AK{total_r}', value='TOTAL FACTURACION',
-                     h='center', bold=True)
-    ws[f'W{total_r}'].font = Font(name='Calibri', size=20, bold=True, color=CERT_BLACK)
-
-    grand_total_formula = (
-        f'=+{pl_subtotal_ref}+{pl_travel_ref}+{pl_equip_ref}+'
-        f'AM{lpz_sub_r}+AM{cba_sub_r}+AM{scz_sub_r}'
-    )
-    _cert_merge_body(ws, f'AL{total_r}:AM{total_r}', value=grand_total_formula,
-                     h='center', bold=True, num_fmt=CERT_ACCT_FMT)
-    ws[f'AL{total_r}'].font = Font(name='Calibri', size=20, bold=True, color=CERT_BLACK)
-
-    # "Son : [total]" text
-    son_r = total_r + 2
-    ws.row_dimensions[son_r].height = 23.4
-    _cert_merge_body(ws,
-                     f'W{son_r}:AM{son_r}',
-                     value=f'="Son : " & TEXT(AL{total_r},"#,##0.00") & " Bolivianos"',
-                     h='center', bold=True, wrap=True)
-
-    # ── Signature block ─────────────────────────────────────────
-    sig_top_r = son_r + 2
-    sig_bottom_r = sig_top_r + 4
-    for rr in (sig_bottom_r, sig_bottom_r + 1):
-        ws.row_dimensions[rr].height = 14.4
-    _cert_merge_body(ws, f'C{sig_top_r}:M{sig_top_r + 3}', value='', h='center')
-    _cert_merge_body(ws, f'O{sig_top_r}:AA{sig_top_r + 3}', value='', h='center')
-    _cert_merge_body(ws, f'AC{sig_top_r}:AM{sig_top_r + 3}', value='', h='center')
-
-    _cert_merge_header(ws, f'C{sig_bottom_r}:M{sig_bottom_r + 1}',
-                       'REDLINE GENERAL SERVICES', size=16, h='center', wrap=True)
-    _cert_merge_header(ws, f'O{sig_bottom_r}:AA{sig_bottom_r + 1}',
-                       'FIRMA APROBACION EMBOL', size=16, h='center', wrap=True)
-    _cert_merge_header(ws, f'AC{sig_bottom_r}:AM{sig_bottom_r + 1}',
-                       'FIRMA APROBACION EMBOL', size=16, h='center', wrap=True)
+    ws.cell(row=total_r, column=38, value=(
+        f'=+AM{pl_sub_r}+P{travel_sub_r}+AM{eq_sub_r}'
+        f'+AM{lpz_sub_r}+AM{cba_sub_r}+AM{scz_sub_r}'
+    ))
+    ws.cell(row=total_r + 2, column=23,
+            value=f'="Son : " & TEXT(AL{total_r},"#,##0.00") & " Bolivianos"')
 
 
 class CertificadoExportView(APIView):
-    """Descarga el Certificado de Pago como .xlsx (replica template.xlsx)."""
+    """Descarga el Certificado de Pago: rellena templates/plantilla.xlsx con
+    los datos del mes o rango de fechas seleccionado. Solo superusers."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -1810,22 +2628,48 @@ class CertificadoExportView(APIView):
             executive = request.user.employee
         except Exception:
             return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not executive.is_executive:
+        if not executive.is_executive or not request.user.is_superuser:
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
         local_now = _local_now()
-        try:
-            year  = int(request.query_params.get('year',  local_now.year))
-            month = int(request.query_params.get('month', local_now.month))
-            if not (1 <= month <= 12):
-                raise ValueError
-        except (ValueError, TypeError):
-            year, month = local_now.year, local_now.month
+        filter_mode = request.query_params.get('mode', 'month')
 
-        from_date = _date(year, month, 1)
-        to_date   = _date(year, month, _cal.monthrange(year, month)[1])
-        first_dt  = timezone.make_aware(_datetime.combine(from_date, _time(0, 0, 0)))
-        last_dt   = timezone.make_aware(_datetime.combine(to_date,   _time(23, 59, 59)))
+        if filter_mode == 'range':
+            try:
+                from_date = _date.fromisoformat(request.query_params.get('from', ''))
+                to_date   = _date.fromisoformat(request.query_params.get('to', ''))
+                if to_date < from_date:
+                    to_date = from_date
+            except (ValueError, TypeError):
+                filter_mode = 'month'
+
+        if filter_mode == 'month':
+            try:
+                year  = int(request.query_params.get('year',  local_now.year))
+                month = int(request.query_params.get('month', local_now.month))
+                if not (1 <= month <= 12):
+                    raise ValueError
+            except (ValueError, TypeError):
+                year, month = local_now.year, local_now.month
+            from_date = _date(year, month, 1)
+            to_date   = _date(year, month, _cal.monthrange(year, month)[1])
+            period_value = from_date  # la celda PERIODO tiene formato 'mmmm yyyy'
+            label = f'{year}-{month:02d}'
+        else:
+            # La PL solo tiene 31 columnas de días
+            if (to_date - from_date).days >= CERT_MAX_DAYS:
+                to_date = from_date + timedelta(days=CERT_MAX_DAYS - 1)
+            period_value = f'{from_date.strftime("%d-%m-%Y")} — {to_date.strftime("%d-%m-%Y")}'
+            label = f'{from_date.strftime("%d-%m-%Y")}__{to_date.strftime("%d-%m-%Y")}'
+
+        dates = []
+        d = from_date
+        while d <= to_date:
+            dates.append(d)
+            d += timedelta(days=1)
+
+        first_dt = timezone.make_aware(_datetime.combine(from_date, _time(0, 0, 0)))
+        last_dt  = timezone.make_aware(_datetime.combine(to_date,   _time(23, 59, 59)))
 
         employees = list(Employee.objects
                          .filter(is_active=True, is_executive=False)
@@ -1834,7 +2678,7 @@ class CertificadoExportView(APIView):
         wd_lookup = {}
         for wd in Workday.objects.filter(
             employee__in=employees,
-            status=Workday.STATUS_COMPLETED,
+            status__in=[Workday.STATUS_COMPLETED, Workday.STATUS_INCOMPLETE],
             start_time__gte=first_dt, start_time__lte=last_dt,
         ).select_related('employee'):
             ls = timezone.localtime(wd.start_time)
@@ -1862,23 +2706,53 @@ class CertificadoExportView(APIView):
             notes_lookup.setdefault(note.date, []).append(f'{lbl}: {note.text}')
 
         import openpyxl
-        wb = openpyxl.Workbook()
-        wb.remove(wb.active)
+        wb = openpyxl.load_workbook(CERT_TEMPLATE_PATH)
 
-        # Build PL (index 0) and employee sheets
-        _build_cert_pl_sheet(wb, employees, year, month, wd_lookup)
+        # La plantilla trae hojas '1'..'12': se quitan las que sobran o se
+        # clonan más si hay empleados adicionales
+        n_emp = len(employees)
+        for s in range(n_emp + 1, CERT_T_EMPLOYEES + 1):
+            wb.remove(wb[str(s)])
+        for s in range(CERT_T_EMPLOYEES + 1, n_emp + 1):
+            new_ws = wb.copy_worksheet(wb['1'])
+            new_ws.title = str(s)
+
+        _cert_fill_pl_sheet(wb['PL'], employees, dates, period_value)
         for idx, emp in enumerate(employees, start=1):
-            _build_cert_employee_sheet(wb, idx, emp, year, month,
-                                       wd_lookup, leaves_lookup, notes_lookup)
+            _cert_fill_employee_sheet(wb[str(idx)], idx, emp, dates,
+                                      wd_lookup, leaves_lookup, notes_lookup)
 
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
 
-        filename = f'certificado-{year}-{month:02d}.xlsx'
+        filename = f'certificado-{label}.xlsx'
         response = HttpResponse(
             buf.read(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+
+class ResetMobileDeviceView(APIView):
+    """Ejecutivo desvincula el dispositivo móvil de un empleado."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, employee_id):
+        try:
+            executive = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+
+        if not executive.is_executive:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        try:
+            emp = Employee.objects.get(id=employee_id, is_active=True, is_executive=False)
+        except Employee.DoesNotExist:
+            return Response({'error': 'Empleado no encontrado'}, status=404)
+
+        emp.mobile_device_id = ''
+        emp.save(update_fields=['mobile_device_id'])
+        return Response({'status': 'ok'})

@@ -5,212 +5,131 @@
 
 {% block content %}
 <style>
-  body { background: #0f0f1a; }
-  .mob-page {
-    min-height: 100svh;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-    background: linear-gradient(160deg, #0f0f1a 0%, #1a1030 100%);
-    display: flex; flex-direction: column; align-items: center;
-    padding: 0 0 40px;
-  }
-  .mob-card {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 20px;
-  }
-  .mob-btn {
-    width: 100%; padding: 18px; border-radius: 16px;
-    font-size: 1rem; font-weight: 700; letter-spacing: -0.01em;
-    cursor: pointer; border: none; transition: opacity 0.15s, transform 0.1s;
-    font-family: inherit;
-  }
-  .mob-btn:active { transform: scale(0.97); }
-  .mob-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
-  .mob-btn-green { background: linear-gradient(135deg, #22c55e, #16a34a); color: white; }
-  .mob-btn-red   { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
-  .mob-btn-blue  { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
-  .mob-btn-ghost {
-    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
-    color: rgba(255,255,255,0.60); font-size: 0.875rem; font-weight: 500;
-  }
-  .mob-input {
-    width: 100%; background: rgba(255,255,255,0.07);
-    border: 1px solid rgba(255,255,255,0.12); border-radius: 14px;
-    color: rgba(255,255,255,0.90); font-size: 1rem; padding: 16px;
-    font-family: inherit; outline: none; transition: border-color 0.15s;
-  }
-  .mob-input:focus { border-color: rgba(59,130,246,0.60); }
-  .mob-input::placeholder { color: rgba(255,255,255,0.30); }
-  .mob-label {
-    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.07em;
-    text-transform: uppercase; color: rgba(255,255,255,0.35); margin-bottom: 8px; display: block;
-  }
-  .mob-error {
-    background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25);
-    border-radius: 12px; padding: 12px 16px;
-    color: #f87171; font-size: 0.875rem;
-  }
-  .pulse-dot {
-    width: 12px; height: 12px; border-radius: 50%; background: #22c55e;
-    animation: pulse 2s infinite; box-shadow: 0 0 8px rgba(34,197,94,0.6);
-  }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-  .timer { font-size: 2.5rem; font-weight: 700; letter-spacing: -0.04em; color: white; }
-  .timer-sub { font-size: 0.8rem; color: rgba(255,255,255,0.40); margin-top: 2px; }
-
-  /* ── Calendar ── */
-  .mob-cal-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 14px;
-  }
-  .mob-cal-title {
-    font-size: 0.95rem; font-weight: 700; color: rgba(255,255,255,0.85);
-    letter-spacing: -0.01em; text-transform: capitalize;
-  }
-  .mob-cal-nav {
-    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 8px; color: rgba(255,255,255,0.55);
-    width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
-    cursor: pointer; font-size: 1rem; transition: background 0.15s;
-  }
-  .mob-cal-nav:hover { background: rgba(255,255,255,0.12); }
-  .mob-cal-grid {
-    display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px;
-  }
-  .mob-cal-dow {
-    text-align: center; font-size: 0.62rem; font-weight: 600;
-    letter-spacing: 0.05em; text-transform: uppercase;
-    color: rgba(255,255,255,0.25); padding: 4px 0 6px;
-  }
-  .mob-cal-day {
-    aspect-ratio: 1; border-radius: 10px;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 2px;
-    font-size: 0.75rem; font-weight: 500;
-    color: rgba(255,255,255,0.55);
-    background: rgba(255,255,255,0.04);
-    position: relative;
-  }
-  .mob-cal-day.empty { background: transparent; }
-  .mob-cal-day.today { border: 1px solid rgba(59,130,246,0.45); color: #93c5fd; }
-  .mob-cal-day.has-work { background: rgba(34,197,94,0.12); color: rgba(255,255,255,0.85); }
-  .mob-cal-day.auto-closed { background: rgba(234,179,8,0.10); color: #fcd34d; }
-  .mob-cal-day.leave-vacacion { background: rgba(59,130,246,0.12); color: #93c5fd; }
-  .mob-cal-day.leave-licencia { background: rgba(249,115,22,0.12); color: #fdba74; }
-  .mob-cal-day.leave-permiso  { background: rgba(167,139,250,0.12); color: #c4b5fd; }
-  .mob-cal-day .cal-hours {
-    font-size: 0.6rem; font-weight: 600; opacity: 0.70; line-height: 1;
-  }
-  .mob-cal-week-stat {
-    margin-top: 10px; padding: 10px 14px;
-    background: rgba(255,255,255,0.04); border-radius: 12px;
-    display: flex; align-items: center; justify-content: space-between;
-  }
+  /* ── Mobile Calendar (built dynamically in JS) ─────────── */
+  .mob-cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+  .mob-cal-dow { text-align:center; font-size:.62rem; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:oklch(var(--bc)/.35); padding:4px 0 6px; }
+  .mob-cal-day { aspect-ratio:1; border-radius:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:.75rem; font-weight:500; color:oklch(var(--bc)/.55); background:oklch(var(--bc)/.04); position:relative; }
+  .mob-cal-day.empty { background:transparent; }
+  .mob-cal-day.today { border:1px solid oklch(var(--p)/.45); color:oklch(var(--p)); }
+  .mob-cal-day.has-work { background:oklch(var(--su)/.12); color:oklch(var(--bc)/.85); }
+  .mob-cal-day.auto-closed { background:oklch(var(--wa)/.10); color:oklch(var(--wa)); }
+  .mob-cal-day.leave-vacacion { background:oklch(var(--p)/.12); color:oklch(var(--p)/.85); }
+  .mob-cal-day.leave-licencia { background:oklch(var(--wa)/.12); color:oklch(var(--wa)/.85); }
+  .mob-cal-day.leave-permiso  { background:oklch(var(--a)/.12); color:oklch(var(--a)/.85); }
+  .mob-cal-day .cal-hours { font-size:.6rem; font-weight:600; opacity:.70; line-height:1; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
 </style>
 
-<div class="mob-page">
+<div class="min-h-svh bg-base-200 flex flex-col items-center pb-10">
 
   <!-- Login view -->
-  <div id="view-login" style="width:100%;max-width:400px;padding:40px 20px">
-    <div style="text-align:center;margin-bottom:36px">
-      <div style="width:64px;height:64px;border-radius:18px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.25);display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
-        <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="none" viewBox="0 0 24 24" stroke="rgba(96,165,250,0.9)" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-        </svg>
-      </div>
-      <p style="font-size:1.5rem;font-weight:800;color:white;letter-spacing:-0.03em">Skylog</p>
-      <p style="font-size:0.875rem;color:rgba(255,255,255,0.40);margin-top:4px">Registro de jornada</p>
+  <div id="view-login" class="w-full max-w-sm px-5 pt-10">
+    <div class="flex flex-col items-center gap-3 mb-9">
+      <img src="{% static 'img/logo_RL.png' %}" alt="RedLine GS" class="h-14 w-auto object-contain">
+      <p class="text-sm text-base-content/50">skylog system</p>
     </div>
 
-    <div class="mob-card" style="padding:28px 24px">
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <div>
-          <label class="mob-label">Usuario</label>
-          <input id="login-user" class="mob-input" type="text" placeholder="tu usuario" autocomplete="username" autocapitalize="none">
+    <div class="card bg-base-100 shadow">
+      <div class="card-body gap-4">
+        <div class="form-control gap-1.5">
+          <label class="text-xs font-semibold uppercase tracking-widest text-base-content/40">Usuario</label>
+          <input id="login-user" class="input input-bordered w-full" type="text" placeholder="tu usuario" autocomplete="username" autocapitalize="none">
         </div>
-        <div>
-          <label class="mob-label">Contraseña</label>
-          <input id="login-pass" class="mob-input" type="password" placeholder="••••••••" autocomplete="current-password">
+        <div class="form-control gap-1.5">
+          <label class="text-xs font-semibold uppercase tracking-widest text-base-content/40">Contraseña</label>
+          <input id="login-pass" class="input input-bordered w-full" type="password" placeholder="••••••••" autocomplete="current-password">
         </div>
-        <div id="login-error" class="mob-error" style="display:none"></div>
-        <button id="btn-login" class="mob-btn mob-btn-blue">Ingresar</button>
+        <div id="login-error" class="alert alert-error text-sm py-2" style="display:none"></div>
+        <button id="btn-login" class="btn-tinted btn-lg w-full mt-1 text-success">Ingresar</button>
       </div>
     </div>
   </div>
 
   <!-- Dashboard view -->
-  <div id="view-dashboard" style="display:none;width:100%;max-width:420px;padding:28px 16px">
+  <div id="view-dashboard" style="display:none" class="w-full max-w-sm px-4 pt-7">
 
     <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px">
+    <div class="flex items-center justify-between mb-7">
       <div>
-        <p id="dash-name" style="font-size:1.1rem;font-weight:700;color:white;letter-spacing:-0.02em"></p>
-        <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin-top:1px">Skylog Mobile</p>
+        <p id="dash-name" class="text-lg font-bold tracking-tight"></p>
+        <p class="text-xs text-base-content/35 mt-0.5">Skylog Mobile</p>
       </div>
-      <button id="btn-logout" class="mob-btn mob-btn-ghost" style="width:auto;padding:8px 14px;border-radius:10px">Salir</button>
+      <button id="btn-logout" class="btn-ghost-tinted btn-sm text-error">Salir</button>
     </div>
 
-    <!-- Status card: inactive -->
-    <div id="mob-inactive" class="mob-card" style="padding:28px 24px;margin-bottom:16px;text-align:center">
-      <div style="width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,0.06);display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
-        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.30)" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
+    <!-- Status: inactive -->
+    <div id="mob-inactive" class="card bg-base-100 shadow mb-4 text-center">
+      <div class="card-body items-center gap-4">
+        <div class="w-15 h-15 rounded-full bg-base-content/6 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7 text-base-content/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="font-semibold text-base-content/70">Sin jornada activa</p>
+          <p class="text-sm text-base-content/35 mt-1">Pulsa el botón para comenzar</p>
+        </div>
       </div>
-      <p style="color:rgba(255,255,255,0.70);font-weight:600;margin-bottom:4px">Sin jornada activa</p>
-      <p style="color:rgba(255,255,255,0.35);font-size:0.8rem">Pulsa el botón para comenzar</p>
     </div>
 
-    <!-- Status card: active -->
-    <div id="mob-active" class="mob-card" style="display:none;padding:28px 24px;margin-bottom:16px;text-align:center">
-      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px">
-        <div class="pulse-dot"></div>
-        <p style="color:#4ade80;font-weight:700;font-size:0.95rem">Jornada activa</p>
+    <!-- Status: active -->
+    <div id="mob-active" class="card bg-base-100 shadow mb-4 text-center" style="display:none">
+      <div class="card-body items-center gap-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-3 h-3 rounded-full bg-success" style="animation:pulse 2s infinite;box-shadow:0 0 8px oklch(var(--su)/.6)"></div>
+          <p class="font-bold text-success">Jornada activa</p>
+        </div>
+        <p id="mob-timer" class="text-5xl font-bold tracking-tight">0:00</p>
+        <p id="mob-since" class="text-xs text-base-content/40 mt-1"></p>
       </div>
-      <div class="timer" id="mob-timer">0:00</div>
-      <p class="timer-sub" id="mob-since"></p>
     </div>
 
-    <!-- Location status -->
-    <div id="mob-loc-error" class="mob-error" style="display:none;margin-bottom:16px">
+    <!-- Location error -->
+    <div id="mob-loc-error" class="alert alert-error text-sm mb-4" style="display:none">
       📍 No se pudo obtener la ubicación. Activa el GPS e intenta de nuevo.
     </div>
 
     <!-- Start button -->
-    <button id="mob-btn-start" class="mob-btn mob-btn-green" style="margin-bottom:12px">
+    <button id="mob-btn-start" class="btn btn-success w-full btn-lg mb-3">
       Iniciar jornada
     </button>
 
     <!-- End workday section -->
     <div id="mob-end-section" style="display:none">
-      <div class="mob-card" style="padding:20px;margin-bottom:12px">
-        <div style="display:flex;flex-direction:column;gap:12px">
-          <div>
-            <label class="mob-label">¿Qué hiciste hoy?</label>
-            <textarea id="mob-done" class="mob-input" style="height:90px;resize:none" placeholder="Actividades realizadas..."></textarea>
+      <div id="mob-report-fields" class="card bg-base-100 shadow mb-3" style="display:none">
+        <div class="card-body gap-3">
+          <div class="form-control gap-1.5">
+            <label class="text-xs font-semibold uppercase tracking-widest text-base-content/40">¿Qué hiciste hoy?</label>
+            <textarea id="mob-done" class="textarea textarea-bordered w-full h-24 resize-none" placeholder="Actividades realizadas..."></textarea>
           </div>
-          <div>
-            <label class="mob-label">¿Qué planeas mañana?</label>
-            <textarea id="mob-planned" class="mob-input" style="height:80px;resize:none" placeholder="Actividades para mañana..."></textarea>
+          <div class="form-control gap-1.5">
+            <label class="text-xs font-semibold uppercase tracking-widest text-base-content/40">¿Qué planeas mañana?</label>
+            <textarea id="mob-planned" class="textarea textarea-bordered w-full h-20 resize-none" placeholder="Actividades para mañana..."></textarea>
           </div>
         </div>
       </div>
-      <button id="mob-btn-end" class="mob-btn mob-btn-red">
+      <button id="mob-btn-end" class="btn btn-error w-full btn-lg" disabled>
         Finalizar jornada
       </button>
     </div>
 
     <!-- Calendar -->
-    <div class="mob-card" style="padding:20px;margin-top:20px">
-      <div class="mob-cal-header">
-        <button class="mob-cal-nav" id="cal-prev">‹</button>
-        <span class="mob-cal-title" id="cal-title">—</span>
-        <button class="mob-cal-nav" id="cal-next">›</button>
-      </div>
-      <div class="mob-cal-grid" id="cal-grid"></div>
-      <div class="mob-cal-week-stat" id="cal-week-stat" style="display:none">
-        <span style="font-size:0.75rem;color:rgba(255,255,255,0.40)">Última semana</span>
-        <span id="cal-week-total" style="font-size:0.85rem;font-weight:700;color:rgba(255,255,255,0.80)">—</span>
+    <div class="card bg-base-100 shadow mt-5">
+      <div class="card-body">
+        <div class="flex items-center justify-between mb-3.5">
+          <button class="btn-nav btn-square btn-sm" id="cal-prev">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <span class="text-sm font-bold capitalize" id="cal-title">—</span>
+          <button class="btn-nav btn-square btn-sm" id="cal-next">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+        <div class="mob-cal-grid" id="cal-grid"></div>
+        <div id="cal-week-stat" class="mt-2.5 p-2.5 rounded-xl bg-base-content/4 flex items-center justify-between" style="display:none">
+          <span class="text-xs text-base-content/40">Última semana</span>
+          <span id="cal-week-total" class="text-sm font-bold text-base-content/80">—</span>
+        </div>
       </div>
     </div>
 
@@ -220,6 +139,20 @@
 <script>
 (function() {
   // ── Auth ──────────────────────────────────────────────────
+  function getDeviceId() {
+    var id = localStorage.getItem('mob_device_id');
+    if (!id) {
+      id = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+          });
+      localStorage.setItem('mob_device_id', id);
+    }
+    return id;
+  }
+
   function getToken()  { return localStorage.getItem('access') || getCookie('access'); }
   function getRefresh(){ return localStorage.getItem('refresh') || getCookie('refresh'); }
   function setTokens(a, r) {
@@ -279,6 +212,7 @@
   var activeId    = null;
   var startTime   = null;
   var timerRef    = null;
+  var mobileType  = null;
 
   function showLogin()  { viewLogin.style.display = ''; viewDash.style.display = 'none'; }
   function showDash()   { viewLogin.style.display = 'none'; viewDash.style.display = ''; }
@@ -313,12 +247,29 @@
     document.getElementById('mob-since').textContent = 'Desde las ' + new Date(iso).toLocaleTimeString('es-BO', opts);
   }
 
+  function wordCount(str) {
+    return str.trim().split(/\s+/).filter(function(w) { return w.length > 0; }).length;
+  }
+
+  function updateEndBtn() {
+    if (mobileType !== 'report') return;
+    var done    = document.getElementById('mob-done').value;
+    var planned = document.getElementById('mob-planned').value;
+    document.getElementById('mob-btn-end').disabled = !(wordCount(done) >= 3 && wordCount(planned) >= 3);
+  }
+
+  document.getElementById('mob-done').addEventListener('input', updateEndBtn);
+  document.getElementById('mob-planned').addEventListener('input', updateEndBtn);
+
   function showActive(wid, iso) {
     activeId = wid;
     document.getElementById('mob-inactive').style.display  = 'none';
     document.getElementById('mob-active').style.display    = '';
     document.getElementById('mob-btn-start').style.display = 'none';
     document.getElementById('mob-end-section').style.display = '';
+    var isReport = mobileType === 'report';
+    document.getElementById('mob-report-fields').style.display = isReport ? '' : 'none';
+    document.getElementById('mob-btn-end').disabled = isReport;
     startTimer(iso);
   }
 
@@ -328,13 +279,18 @@
     document.getElementById('mob-active').style.display    = 'none';
     document.getElementById('mob-btn-start').style.display = '';
     document.getElementById('mob-end-section').style.display = 'none';
-    document.getElementById('mob-done').value    = '';
-    document.getElementById('mob-planned').value = '';
+    document.getElementById('mob-loc-error').style.display = 'none';
+    if (mobileType === 'report') {
+      document.getElementById('mob-done').value    = '';
+      document.getElementById('mob-planned').value = '';
+      document.getElementById('mob-btn-end').disabled = true;
+    }
   }
 
   // ── Init dashboard ────────────────────────────────────────
   async function initDash(prof) {
     profile = prof;
+    mobileType = prof.mobile_type || null;
     document.getElementById('dash-name').textContent = prof.full_name || prof.nextcloud_username;
 
     var r = await apiFetch('/api/workday/active/');
@@ -359,7 +315,7 @@
       var r = await fetch('/api/auth/mobile-login/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-        body: JSON.stringify({ username: user, password: pass }),
+        body: JSON.stringify({ username: user, password: pass, device_id: getDeviceId() }),
       });
       var data = await r.json();
       if (!r.ok) { err.textContent = data.error || 'Error al ingresar.'; err.style.display = ''; btn.disabled = false; btn.textContent = 'Ingresar'; return; }
@@ -381,14 +337,29 @@
 
   // ── Start workday ─────────────────────────────────────────
   document.getElementById('mob-btn-start').addEventListener('click', async function() {
-    var btn = this;
-    btn.disabled = true; btn.textContent = 'Iniciando...';
-    var loc = await getLocation();
+    var btn    = this;
+    var locErr = document.getElementById('mob-loc-error');
+    locErr.style.display = 'none';
+    btn.disabled = true;
+
+    var loc = null;
+    if (mobileType === 'gps') {
+      btn.textContent = 'Obteniendo ubicación...';
+      loc = await getLocation();
+      if (!loc) {
+        locErr.style.display = '';
+        btn.disabled = false; btn.textContent = 'Iniciar jornada';
+        return;
+      }
+    }
+
+    btn.textContent = 'Iniciando...';
     try {
+      var body = loc ? { latitude: loc.latitude, longitude: loc.longitude } : {};
       var r = await apiFetch('/api/workday/start/', {
         method: 'POST',
         headers: { 'X-CSRFToken': getCsrf() },
-        body: JSON.stringify(loc ? { latitude: loc.latitude, longitude: loc.longitude } : {}),
+        body: JSON.stringify(body),
       });
       if (!r) return;
       var data = await r.json();
@@ -400,21 +371,35 @@
 
   // ── End workday ───────────────────────────────────────────
   document.getElementById('mob-btn-end').addEventListener('click', async function() {
-    var btn = this;
-    var done    = document.getElementById('mob-done').value.trim();
-    var planned = document.getElementById('mob-planned').value.trim();
-    var locErr  = document.getElementById('mob-loc-error');
+    var btn    = this;
+    var locErr = document.getElementById('mob-loc-error');
     locErr.style.display = 'none';
+    btn.disabled = true;
 
-    if (!done || !planned) { alert('Completa las actividades antes de finalizar.'); return; }
+    var body = { workday_id: activeId };
 
-    btn.disabled = true; btn.textContent = 'Obteniendo ubicación...';
-    var loc = await getLocation();
+    if (mobileType === 'report') {
+      var done    = document.getElementById('mob-done').value.trim();
+      var planned = document.getElementById('mob-planned').value.trim();
+      if (!done || !planned) {
+        alert('Completa las actividades antes de finalizar.');
+        btn.disabled = false;
+        return;
+      }
+      body.activities_done    = done;
+      body.activities_planned = planned;
+    }
 
-    if (!loc) {
-      locErr.style.display = '';
-      btn.disabled = false; btn.textContent = 'Finalizar jornada';
-      return;
+    if (mobileType === 'gps') {
+      btn.textContent = 'Obteniendo ubicación...';
+      var loc = await getLocation();
+      if (!loc) {
+        locErr.style.display = '';
+        btn.disabled = false; btn.textContent = 'Finalizar jornada';
+        return;
+      }
+      body.latitude  = loc.latitude;
+      body.longitude = loc.longitude;
     }
 
     btn.textContent = 'Finalizando...';
@@ -422,13 +407,7 @@
       var r = await apiFetch('/api/workday/end/', {
         method: 'POST',
         headers: { 'X-CSRFToken': getCsrf() },
-        body: JSON.stringify({
-          workday_id: activeId,
-          activities_done: done,
-          activities_planned: planned,
-          latitude: loc.latitude,
-          longitude: loc.longitude,
-        }),
+        body: JSON.stringify(body),
       });
       if (!r) return;
       var data = await r.json();
@@ -482,12 +461,11 @@
     var isToday = today.getFullYear() === calYear && today.getMonth() + 1 === calMonth;
     var todayD  = today.getDate();
     var daysInMonth = new Date(calYear, calMonth, 0).getDate();
-    var firstDow    = (new Date(calYear, calMonth - 1, 1).getDay() + 6) % 7; // lunes=0
+    var firstDow    = (new Date(calYear, calMonth - 1, 1).getDay() + 6) % 7;
 
     var grid = document.getElementById('cal-grid');
     grid.innerHTML = '';
 
-    // Day-of-week headers
     DIAS.forEach(function(d) {
       var el = document.createElement('div');
       el.className = 'mob-cal-dow';
@@ -495,7 +473,6 @@
       grid.appendChild(el);
     });
 
-    // Empty cells before first day
     for (var i = 0; i < firstDow; i++) {
       var el = document.createElement('div');
       el.className = 'mob-cal-day empty';
@@ -541,7 +518,6 @@
       grid.appendChild(el);
     }
 
-    // Week stat (last 7 days up to today or end of month)
     var refDay = isToday ? todayD : daysInMonth;
     var weekStart = refDay - 6;
     var weekTotal = 0;

@@ -29,25 +29,24 @@ echo "━━━ Desplegando: ${PROJECT_NAME} (${DOMAIN}) ━━━"
 echo "▶ Actualizando código..."
 git pull origin main
 
-# ── 2. Permisos del volumen n8n (deshabilitado) ───────────────────────────────
-# if [ -n "${N8N_DOMAIN}" ]; then
-#     echo "▶ Ajustando permisos de n8n..."
-#     mkdir -p volumes/n8n
-#     sudo chown -R 1000:1000 volumes/n8n
-# fi
+# ── 2. Permisos del volumen n8n (solo si n8n está habilitado) ─────────────────
+if [ -n "${N8N_DOMAIN}" ]; then
+    echo "▶ Ajustando permisos de n8n..."
+    mkdir -p volumes/n8n
+    sudo chown -R 1000:1000 volumes/n8n
+fi
 
 # ── 3. Reconstruir y reiniciar contenedores ────────────────────────────────────
 # NOTA: nginx NO se toca en cada deploy. Ejecutar `make nginx` solo manualmente
 #       cuando cambie nginx.conf (primera instalación o cambio de config).
 echo "▶ Reconstruyendo contenedores Docker..."
 docker compose down
-docker compose up -d --build
-
-# n8n (deshabilitado)
-# if [ -n "${N8N_DOMAIN}" ]; then
-#     echo "  n8n habilitado (${N8N_DOMAIN})"
-#     docker compose --profile n8n up -d --build
-# fi
+if [ -n "${N8N_DOMAIN}" ]; then
+    echo "  n8n habilitado (${N8N_DOMAIN})"
+    docker compose --profile n8n up -d --build
+else
+    docker compose up -d --build
+fi
 
 echo ""
 echo "✓ Despliegue completado → http://${DOMAIN}"

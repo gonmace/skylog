@@ -10,7 +10,12 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='', cast=Csv())
 
+if DEBUG:
+    ALLOWED_HOSTS += ['host.docker.internal']
+
 ADMIN_URL = config('ADMIN_URL', default='admin/')
+
+INTERNAL_API_TOKEN = config('INTERNAL_API_TOKEN', default='')
 
 # Application definition
 
@@ -56,7 +61,7 @@ if DEBUG:
     INSTALLED_APPS += ['django_browser_reload']
     MIDDLEWARE += ['django_browser_reload.middleware.BrowserReloadMiddleware']
     INTERNAL_IPS = ['127.0.0.1', '::1']
-    NPM_BIN_PATH = r'C:\Program Files\nodejs\npm.cmd'
+    NPM_BIN_PATH = '/home/gonzalo/.nvm/versions/node/v20.18.0/bin/npm'
 
 AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',

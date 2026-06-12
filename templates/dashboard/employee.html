@@ -1,0 +1,638 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dashboard — RedLine GS{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Calendar (classes built dynamically in JS) ─────────── */
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+  .cal-day-header { font-size:.58rem; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:oklch(var(--bc)/.4); text-align:center; padding:3px 0 5px; }
+  .cal-day { border-radius:8px; min-height:34px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; }
+  /* Fin de semana (sábado/domingo): tinte tenue por columna. Va antes de .has-work
+     para que un día con trabajo conserve su color verde. */
+  .cal-grid > :nth-child(7n+6), .cal-grid > :nth-child(7n) { background:oklch(var(--bc)/.12); }
+  .cal-day-header:nth-child(7n+6), .cal-day-header:nth-child(7n) { color:oklch(var(--bc)/.65); }
+  .cal-day-num { font-size:.72rem; font-weight:500; color:oklch(var(--bc)/.4); line-height:1; }
+  .cal-day-hrs { font-size:.54rem; font-weight:700; line-height:1; color:oklch(var(--su)); letter-spacing:.01em; }
+  .cal-day.empty .cal-day-num { opacity:.2; }
+  .cal-day.has-work  { background:oklch(var(--su)/.10); }
+  .cal-day.has-work .cal-day-num { color:oklch(var(--bc)); }
+  .cal-day.work-good { background:oklch(var(--su)/.18); }
+  .cal-day.work-full { background:oklch(var(--su)/.28); }
+  .cal-day.is-today  { box-shadow:0 0 0 1.5px oklch(var(--p)); }
+  .cal-day.is-today .cal-day-num { color:oklch(var(--p)); font-weight:700; }
+  .cal-day.active-wd { background:oklch(var(--p)/.12); }
+  .cal-day.active-wd .cal-day-hrs { color:oklch(var(--p)); }
+  .cal-day.auto-closed-day { box-shadow:inset 0 -2px 0 oklch(var(--wa)/.60); }
+  .cal-day.auto-closed-day .cal-day-num { color:oklch(var(--er)); }
+  .cal-day.leave-vacacion { background:oklch(var(--p)/.18); }
+  .cal-day.leave-licencia { background:oklch(var(--wa)/.18); }
+  .cal-day.leave-permiso  { background:oklch(var(--a)/.18); }
+  .cal-day.leave-vacacion .cal-day-num { color:oklch(var(--p)); font-weight:700; }
+  .cal-day.leave-licencia .cal-day-num { color:oklch(var(--wa)); font-weight:700; }
+  .cal-day.leave-permiso  .cal-day-num { color:oklch(var(--a)); font-weight:700; }
+  .cal-day.has-note { position:relative; }
+  .cal-day.has-note::after { content:''; position:absolute; top:4px; right:4px; width:5px; height:5px; border-radius:50%; background:oklch(var(--wa)); }
+  .cal-day.has-note::before {
+    content:attr(data-note); position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%);
+    background:oklch(var(--b3)); color:oklch(var(--bc)); font-size:.7rem; font-weight:500; white-space:nowrap;
+    padding:5px 10px; border-radius:8px; border:1px solid oklch(var(--bc)/.12);
+    pointer-events:none; opacity:0; transition:opacity .15s; z-index:50;
+  }
+  .cal-day.has-note:hover::before { opacity:1; }
+  /* ── Messages (rendered from JS) ───────────────────────── */
+  .message-banner {
+    background:color-mix(in srgb, var(--color-warning) 9%, var(--color-base-100));
+    border:1px solid color-mix(in srgb, var(--color-warning) 25%, transparent);
+    border-left:3px solid var(--color-warning); border-radius:16px;
+    padding:16px 20px; display:flex; align-items:flex-start; gap:14px;
+    box-shadow:0 1px 3px oklch(0 0 0/.18);
+  }
+  .btn-msg-done {
+    display:inline-flex; align-items:center; gap:6px; padding:7px 16px; border-radius:10px;
+    white-space:nowrap; background:color-mix(in srgb, var(--color-warning) 18%, transparent);
+    border:1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color:var(--color-warning); font-size:.8rem; font-weight:600; cursor:pointer; font-family:inherit;
+  }
+
+  /* ── Mis estadísticas (reutiliza el diseño de /estadisticas/) ─── */
+  .es-mode-tab { padding:7px 14px;font-size:0.78rem;font-weight:500;color:var(--cp-text-lo);background:transparent;border:none;cursor:pointer;font-family:inherit;transition:background .15s,color .15s; }
+  .es-mode-tab.active { background:color-mix(in srgb,var(--cp-blue) 20%,transparent);color:var(--cp-blue); }
+  .es-mode-tab:not(.active):hover { background:rgba(255,255,255,0.05);color:var(--cp-text-mid); }
+  .es-kpi { font-variant-numeric:tabular-nums; }
+  .es-table { width:100%;border-collapse:collapse;white-space:nowrap; }
+  .es-table thead th { font-size:0.64rem;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--cp-text-lo);padding:10px 14px;text-align:left;vertical-align:bottom; }
+  .es-table thead th:first-child { padding-left:24px; }
+  .es-table thead th.center { text-align:center; }
+  .es-table tbody tr { border-bottom:1px solid rgba(255,255,255,0.04); }
+  .es-table tbody td { padding:10px 14px;color:var(--cp-text-hi);font-size:0.84rem;vertical-align:middle; }
+  .es-table tbody td:first-child { padding-left:24px; }
+  .es-table tbody td.center { text-align:center;font-variant-numeric:tabular-nums; }
+  .es-table tbody td.muted { color:var(--cp-text-lo); }
+  .es-table tbody tr.es-ref-row td { color:var(--cp-text-mid);font-style:italic;background:color-mix(in srgb,var(--cp-text-lo) 6%,transparent); }
+  .es-table tbody tr.es-ref-row.es-ref-first td { border-top:2px solid rgba(255,255,255,0.12); }
+  .es-role-pill { display:inline-flex;align-items:center;padding:2px 9px;border-radius:20px;font-size:0.7rem;font-weight:600; }
+  .es-role-pill.supervisor { background:color-mix(in srgb,var(--color-success) 15%,transparent);color:var(--color-success);border:1px solid color-mix(in srgb,var(--color-success) 28%,transparent); }
+  .es-role-pill.project_manager { background:color-mix(in srgb,var(--color-info) 15%,transparent);color:var(--color-info);border:1px solid color-mix(in srgb,var(--color-info) 28%,transparent); }
+  .es-legend { display:flex;flex-wrap:wrap;gap:5px 14px;justify-content:center;margin-top:10px; }
+  .es-leg-item { display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;color:rgba(255,255,255,0.7); }
+  .es-leg-dot { width:11px;height:11px;border-radius:3px;flex-shrink:0; }
+</style>
+
+<div class="min-h-screen bg-base-200">
+
+  <!-- Loading -->
+  <div id="view-loading" class="flex items-center justify-center min-h-screen">
+    <span class="loading loading-spinner loading-md text-primary"></span>
+  </div>
+
+  <!-- No Access -->
+  <div id="view-noaccess" class="hidden flex items-center justify-center min-h-screen p-6">
+    <div class="card bg-base-100 shadow-xl w-full max-w-sm">
+      <div class="card-body items-center text-center gap-6">
+        <div class="w-16 h-16 rounded-full bg-warning/10 border border-warning/20 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+          </svg>
+        </div>
+        <p class="text-xl font-bold">Acceso a Skylog deshabilitado</p>
+        <button id="noaccess-btn-logout" class="btn-ghost-tinted btn-sm gap-2 text-error">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+          Cerrar sesión
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Employee view -->
+  <div id="view-employee" class="hidden">
+  <div class="container mx-auto max-w-5xl px-4 py-6">
+
+    <!-- Perfil (cabecera full-width) -->
+    <div class="card bg-base-100 shadow px-6 py-4 mb-4">
+      <div class="flex items-center gap-4">
+        <div id="profile-avatar" class="w-11 h-11 rounded-full font-bold text-base flex items-center justify-center uppercase select-none shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <p class="font-semibold truncate" id="profile-fullname"></p>
+          <p class="text-sm mt-0.5 truncate text-base-content/40" id="profile-email"></p>
+        </div>
+        <button id="btn-logout" title="Cerrar sesión" class="btn-ghost-tinted btn-square btn-sm shrink-0 text-error">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+
+    <!-- Left column -->
+    <div class="flex flex-col gap-4">
+
+      <!-- Setup required -->
+      <div id="setup-required" class="hidden card bg-base-100 shadow overflow-hidden">
+        <div class="card-body items-center text-center">
+          <div class="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+            </svg>
+          </div>
+          <h2 class="card-title text-lg">Instala el agente para comenzar</h2>
+          <p class="text-sm text-base-content/60 max-w-xs mb-4">RedLine GS necesita el agente de escritorio para registrar tu jornada laboral.</p>
+          <div class="flex flex-col gap-3 text-left w-full max-w-xs mb-6">
+            <div class="flex items-start gap-3">
+              <div class="badge badge-primary shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold p-0">1</div>
+              <span class="text-sm text-base-content/60">Descarga <code class="text-primary font-mono text-xs">RedLineGS.zip</code> y extrae los archivos en una carpeta fija</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <div class="badge badge-primary shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold p-0">2</div>
+              <span class="text-sm text-base-content/60">Desactiva el antivirus temporalmente</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <div class="badge badge-primary shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold p-0">3</div>
+              <span class="text-sm text-base-content/60">Ejecuta <code class="text-primary font-mono text-xs">RedLineGS_setup.exe</code> y sigue el asistente — no se abrirá el navegador</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <div class="badge badge-primary shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold p-0">4</div>
+              <span class="text-sm text-base-content/60">Vuelve aquí — el panel se activará automáticamente</span>
+            </div>
+          </div>
+          <div class="flex flex-col items-center gap-3 w-full">
+            <button id="btn-setup-download" class="btn-tinted btn-sm gap-2 w-full max-w-xs text-info">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Descargar agente
+            </button>
+            <button id="btn-setup-retry" class="btn-ghost-tinted btn-sm w-full max-w-xs text-base-content/60">Ya lo instalé — verificar conexión</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status card -->
+      <div id="status-card" class="card bg-base-100 shadow overflow-hidden">
+        <div class="card-body pb-2">
+          <p class="text-xs font-semibold uppercase tracking-widest text-base-content/40 mb-1">Estado de jornada</p>
+
+          <div id="status-loading" class="flex items-center gap-3 py-4">
+            <span class="loading loading-spinner loading-sm text-primary"></span>
+            <span class="text-sm text-base-content/40">Cargando...</span>
+          </div>
+
+          <div id="status-inactive" class="hidden py-2">
+            <div class="flex items-center gap-4">
+              <div class="w-12 h-12 rounded-full bg-base-content/6 flex items-center justify-center shrink-0">
+                <div class="w-4 h-4 rounded-full bg-base-content/25"></div>
+              </div>
+              <div>
+                <p class="font-semibold">Sin jornada activa</p>
+                <p class="text-sm mt-0.5 text-base-content/40">Hoy aún no has iniciado</p>
+              </div>
+            </div>
+          </div>
+
+          <div id="status-active" class="hidden py-2">
+            <div class="flex items-center gap-4">
+              <div class="w-12 h-12 rounded-full bg-success/12 flex items-center justify-center shrink-0 relative">
+                <div class="w-4 h-4 rounded-full animate-pulse bg-success"></div>
+                <div class="absolute inset-0 rounded-full animate-ping bg-success/15"></div>
+              </div>
+              <div>
+                <p class="font-semibold text-success">Jornada activa</p>
+                <p id="active-since" class="text-sm mt-0.5 text-base-content/60"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 border-t border-base-content/10 flex justify-end gap-2">
+          <button id="btn-start" class="hidden btn-tinted btn-sm gap-2 text-success">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Iniciar jornada
+          </button>
+          <button id="btn-end" class="hidden btn-tinted btn-sm gap-2 text-error">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10h6v4H9z"/>
+            </svg>
+            Finalizar jornada
+          </button>
+        </div>
+      </div>
+
+      <!-- Agent version card -->
+      <div id="agent-version-card" class="hidden card bg-base-100 shadow px-6 py-4">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-base-content/6 flex items-center justify-center shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-base-content/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+              </svg>
+            </div>
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-widest text-base-content/40 mb-0.5">Agente</p>
+              <div class="flex items-center gap-2">
+                <p id="agent-version-text" class="text-sm text-base-content/60"></p>
+                <span id="agent-offline-badge" class="hidden badge badge-warning badge-sm gap-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                  </svg>
+                  Offline
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button id="btn-download-agent" class="hidden btn-ghost-tinted btn-sm gap-2 shrink-0 text-info">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Descargar
+            </button>
+            <button id="btn-update-agent" class="hidden btn-tinted btn-sm gap-2 text-warning">
+              <span id="btn-update-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+              </span>
+              <span class="loading loading-spinner loading-xs hidden" id="btn-update-spinner"></span>
+              <span id="btn-update-label">Actualizar</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calendar -->
+      <div id="calendar-card" class="hidden card bg-base-100 shadow px-6 py-5">
+        <div class="flex items-center justify-between mb-4">
+          <p class="text-xs font-semibold uppercase tracking-widest text-base-content/40">Horas trabajadas</p>
+          <div class="flex items-center gap-2">
+            <button id="cal-prev" class="btn-nav btn-square btn-xs" title="Mes anterior">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+              </svg>
+            </button>
+            <p id="cal-month-label" class="text-sm font-semibold min-w-[130px] text-center"></p>
+            <button id="cal-next" class="btn-nav btn-square btn-xs" title="Mes siguiente">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="cal-grid" class="cal-grid"></div>
+      </div>
+
+    </div><!-- /left column -->
+
+    <!-- Right column -->
+    <div class="flex flex-col gap-4">
+
+      <!-- Mensajes del ejecutivo (primero, antes de Plan inmediato) -->
+      <div id="messages-container" class="hidden flex flex-col gap-3"></div>
+
+      <div id="last-report-col" class="hidden flex flex-col gap-4">
+        <div class="card bg-base-100 shadow px-6 py-5">
+          <p class="text-xs font-semibold uppercase tracking-widest text-base-content/40 mb-3">Plan inmediato</p>
+          <p id="report-planned" class="text-sm leading-relaxed whitespace-pre-wrap select-none text-base-content/70"></p>
+        </div>
+
+        <div class="card bg-base-100 shadow px-6 py-5">
+          <div class="flex items-baseline justify-between gap-3 mb-3">
+            <p class="text-xs font-semibold uppercase tracking-widest text-base-content/40">Último reporte</p>
+            <p id="report-date" class="text-xs text-base-content/30 shrink-0"></p>
+          </div>
+          <p id="report-done" class="text-sm leading-relaxed whitespace-pre-wrap select-none text-base-content/70"></p>
+        </div>
+      </div>
+
+    </div><!-- /right column -->
+
+    </div><!-- /grid -->
+
+    <!-- Mis estadísticas (reutiliza render + diseño de /estadisticas/) -->
+    <div id="es-panel" class="mt-2">
+      <div class="card bg-base-100 shadow overflow-hidden mb-5">
+        <div class="flex items-center justify-between flex-wrap gap-x-3 gap-y-1 px-7 py-5 border-b border-base-content/10">
+          <p class="text-lg font-bold tracking-tight">Mis estadísticas de actividades</p>
+          <p id="es-period" class="text-sm font-semibold text-base-content/70 text-right">Cargando...</p>
+        </div>
+        <div class="flex items-end flex-wrap gap-3 px-7 py-4">
+          <div class="flex flex-col gap-1">
+            <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Periodo</span>
+            <div class="flex border border-base-content/15 rounded-xl overflow-hidden">
+              <button type="button" id="es-tab-all" class="es-mode-tab active" onclick="setMode('all')">Todos</button>
+              <button type="button" id="es-tab-month" class="es-mode-tab" onclick="setMode('month')">Este mes</button>
+              <button type="button" id="es-tab-last" class="es-mode-tab" onclick="setMode('last')">Último</button>
+            </div>
+          </div>
+          <div class="flex flex-col gap-1">
+            <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Actividades</span>
+            <select id="es-sel-kind" class="select select-bordered select-sm" style="min-width:130px" onchange="loadStats()">
+              <option value="done">Realizadas</option>
+              <option value="planned">Planificadas</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div id="es-loading" class="py-16 text-center text-base-content/40 text-sm">Cargando...</div>
+      <div id="es-empty" style="display:none" class="py-16 text-center text-base-content/30 text-sm">
+        No hay actividades clasificadas para el período.
+      </div>
+
+      <div id="es-content" style="display:none">
+        <!-- KPIs -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          <div class="card bg-base-100 shadow px-5 py-4">
+            <span class="text-xs uppercase tracking-widest text-base-content/40">Actividades</span>
+            <span id="es-kpi-items" class="es-kpi text-2xl font-bold mt-1">—</span>
+          </div>
+          <div class="card bg-base-100 shadow px-5 py-4">
+            <span class="text-xs uppercase tracking-widest text-base-content/40">Reportes (días)</span>
+            <span id="es-kpi-reports" class="es-kpi text-2xl font-bold mt-1">—</span>
+          </div>
+          <div class="card bg-base-100 shadow px-5 py-4">
+            <span class="text-xs uppercase tracking-widest text-base-content/40">Actividades/día</span>
+            <span id="es-kpi-perday" class="es-kpi text-2xl font-bold mt-1 text-accent">—</span>
+          </div>
+          <div class="card bg-base-100 shadow px-5 py-4">
+            <span class="text-xs uppercase tracking-widest text-base-content/40">Categoría top</span>
+            <span id="es-kpi-topcat" class="text-base font-bold mt-1 leading-tight">—</span>
+          </div>
+          <span id="es-kpi-emps" style="display:none"></span>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+          <div class="card bg-base-100 shadow px-6 py-5">
+            <p class="text-sm font-bold mb-3">Distribución por categoría</p>
+            <div style="position:relative;height:300px"><div id="es-chart-dist"></div></div>
+            <div id="es-leg-dist" class="es-legend"></div>
+          </div>
+          <div class="card bg-base-100 shadow px-6 py-5">
+            <p class="text-sm font-bold mb-3">Yo vs promedio de cada rol <span class="text-base-content/40 font-normal">(% del trabajo)</span></p>
+            <div style="position:relative;height:300px"><div id="es-chart-role"></div></div>
+            <div id="es-leg-role" class="es-legend"></div>
+          </div>
+        </div>
+        <div class="card bg-base-100 shadow px-6 py-5 mb-5">
+          <div class="flex items-center justify-between mb-3">
+            <p id="es-evo-title" class="text-sm font-bold">Evolución semanal</p>
+            <div class="flex border border-base-content/15 rounded-lg overflow-hidden">
+              <button type="button" id="es-gran-month" class="es-mode-tab" onclick="setGran('month')">Mensual</button>
+              <button type="button" id="es-gran-week" class="es-mode-tab active" onclick="setGran('week')">Semanal</button>
+            </div>
+          </div>
+          <div style="position:relative;height:300px"><div id="es-chart-month"></div></div>
+          <div id="es-leg-month" class="es-legend"></div>
+        </div>
+
+        <!-- Mis métricas -->
+        <div class="card bg-base-100 shadow overflow-hidden mb-5">
+          <div class="px-7 py-4 border-b border-base-content/10"><p class="text-sm font-bold">Mis métricas</p></div>
+          <div class="overflow-x-auto">
+            <table class="es-table"><thead><tr id="es-met-head"></tr></thead><tbody id="es-met-body"></tbody></table>
+          </div>
+        </div>
+
+        <!-- Desglose por categoría -->
+        <div class="card bg-base-100 shadow overflow-hidden mb-5">
+          <div class="px-7 py-4 border-b border-base-content/10"><p class="text-sm font-bold">Desglose por categoría</p></div>
+          <div class="overflow-x-auto">
+            <table class="es-table"><thead><tr id="es-emp-head"></tr></thead><tbody id="es-emp-body"></tbody></table>
+          </div>
+        </div>
+
+        <!-- Top categorías -->
+        <div class="card bg-base-100 shadow overflow-hidden">
+          <div class="px-7 py-4 border-b border-base-content/10"><p class="text-sm font-bold">Top categorías</p></div>
+          <div class="px-4 py-4">
+            <div id="es-topcat-single"></div>
+            <div id="es-topcat-cmp" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /container -->
+  </div><!-- /view-employee -->
+
+</div><!-- /page -->
+
+<!-- Modal: finalizar jornada -->
+<dialog id="modal-end-workday" class="modal">
+  <div class="modal-box max-w-md rounded-2xl p-0 overflow-hidden">
+    <div class="px-6 pt-6 pb-4 border-b border-base-content/10">
+      <h3 class="font-bold text-lg">Finalizar jornada</h3>
+      <p class="text-sm mt-0.5 text-base-content/40">Registra las actividades antes de cerrar</p>
+    </div>
+    <div class="px-6 py-5 flex flex-col gap-4">
+      <div class="flex flex-col gap-1.5">
+        <label class="text-sm font-semibold text-base-content/60">¿Qué hiciste hoy?</label>
+        <textarea id="activities-done" class="textarea textarea-bordered w-full h-28 resize-none" placeholder="Describe las actividades realizadas hoy..."></textarea>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <label class="text-sm font-semibold text-base-content/60">¿Qué planeas hacer mañana?</label>
+        <textarea id="activities-planned" class="textarea textarea-bordered w-full h-28 resize-none" placeholder="Describe las actividades planificadas para mañana..."></textarea>
+      </div>
+      <div id="modal-error" class="hidden alert alert-error py-2 text-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span id="modal-error-text"></span>
+      </div>
+    </div>
+    <div class="px-6 pb-6 flex justify-end gap-2">
+      <button id="btn-modal-cancel" class="btn-ghost-tinted btn-sm text-base-content/60">Cancelar</button>
+      <button id="btn-modal-submit" class="btn-tinted btn-sm gap-2 text-error">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        Finalizar jornada
+      </button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Modal: descargar agente -->
+<dialog id="modal-download-agent" class="modal">
+  <div class="modal-box max-w-sm rounded-2xl p-0 overflow-hidden">
+    <div class="px-6 pt-6 pb-4 border-b border-base-content/10">
+      <h3 class="font-bold text-lg">Instalar el agente</h3>
+      <p class="text-sm mt-0.5 text-base-content/40">Sigue estos pasos para completar la instalación</p>
+    </div>
+    <div class="px-6 py-5 flex flex-col gap-4">
+
+      <div id="dl-step-1" class="flex items-start gap-3">
+        <div id="dl-step-1-icon" class="shrink-0 mt-0.5">
+          <span class="loading loading-spinner loading-xs text-primary"></span>
+        </div>
+        <div>
+          <p class="text-sm font-semibold">Descargando RedLineGS.zip...</p>
+          <p id="dl-step-1-sub" class="text-xs mt-0.5 text-base-content/40">Puede tardar unos segundos</p>
+        </div>
+      </div>
+
+      <div id="dl-steps-rest" class="hidden flex flex-col gap-4">
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-warning/14 border border-warning/25 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" class="text-warning">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold">Desactiva el antivirus</p>
+            <p class="text-xs mt-0.5 text-base-content/40">El ejecutable puede ser bloqueado por Windows Defender. Desactívalo temporalmente antes de ejecutar.</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-primary/14 border border-primary/25 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" class="text-primary">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold">Extrae el ZIP</p>
+            <p class="text-xs mt-0.5 text-base-content/40">Extrae en una carpeta fija como <code class="text-xs bg-base-content/8 px-1 rounded">C:\RedLineGS\</code>. No muevas los archivos después.</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-success/14 border border-success/25 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" class="text-success">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold">Ejecuta el instalador</p>
+            <p class="text-xs mt-0.5 text-base-content/40">Haz doble clic en <code class="text-xs bg-base-content/8 px-1 rounded">RedLineGS_setup.exe</code> y sigue el asistente.</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-base-content/10 border border-base-content/12 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" class="text-base-content/60">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold">Vuelve a este panel</p>
+            <p class="text-xs mt-0.5 text-base-content/40">Tras autorizar, el panel se activará automáticamente en unos segundos.</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="dl-error" class="hidden alert alert-error py-2 text-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span id="dl-error-text"></span>
+      </div>
+
+    </div>
+    <div class="px-6 pb-6 flex justify-end">
+      <button id="btn-dl-close" class="btn-ghost-tinted btn-sm text-base-content/60">Cerrar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{% static 'dashboard/js/employee.js' %}" defer></script>
+<script src="{% static 'js/vendor/apexcharts.min.js' %}"></script>
+<script src="{% static 'dashboard/js/estadisticas-render.js' %}?v=8"></script>
+<script>
+// ── "Mis estadísticas": glue del panel personal. Reutiliza las funciones de render
+//    compartidas (estadisticas-render.js) sobre /api/mis-estadisticas/. ──
+var _mode = 'all';
+var _gran = 'week';
+var _data = null;
+
+function setMode(m) {
+  _mode = m;
+  document.getElementById('es-tab-all').classList.toggle('active', m === 'all');
+  document.getElementById('es-tab-month').classList.toggle('active', m === 'month');
+  document.getElementById('es-tab-last').classList.toggle('active', m === 'last');
+  loadStats();
+}
+function setGran(g) {
+  _gran = g;
+  document.getElementById('es-gran-month').classList.toggle('active', g === 'month');
+  document.getElementById('es-gran-week').classList.toggle('active', g === 'week');
+  document.getElementById('es-evo-title').textContent = g === 'week' ? 'Evolución semanal' : 'Evolución mensual';
+  loadStats();
+}
+function buildApiUrl() {
+  var qs = ['mode=' + _mode, 'kind=' + document.getElementById('es-sel-kind').value, 'granularity=' + _gran];
+  return '/api/mis-estadisticas/?' + qs.join('&');
+}
+
+function _msCookie(n) { var m = document.cookie.match('(^|;)\\s*' + n + '\\s*=\\s*([^;]+)'); return m ? decodeURIComponent(m.pop()) : null; }
+function _msToken(n) { return _msCookie(n) || localStorage.getItem(n); }
+function _msRefresh() {
+  var r = _msToken('refresh');
+  if (!r) return Promise.resolve(null);
+  return fetch('/api/auth/token/refresh/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh: r }) })
+    .then(function (res) { return res.ok ? res.json() : null; })
+    .then(function (d) { if (d && d.access) { localStorage.setItem('access', d.access); return d.access; } return null; })
+    .catch(function () { return null; });
+}
+
+function loadStats() {
+  var access = _msToken('access');
+  if (!access) return;
+  var url = buildApiUrl(), firstHidden = document.getElementById('es-content').style.display === 'none';
+  if (firstHidden) document.getElementById('es-loading').style.display = '';
+  fetch(url, { headers: { Authorization: 'Bearer ' + access } })
+    .then(function (res) {
+      if (res.status === 401) { return _msRefresh().then(function (na) { return na ? fetch(url, { headers: { Authorization: 'Bearer ' + na } }) : null; }); }
+      return res;
+    })
+    .then(function (res) { return res ? res.json() : null; })
+    .then(function (data) {
+      if (!data) return;
+      _data = data;
+      document.getElementById('es-loading').style.display = 'none';
+      var parts = [];
+      if (data.period) parts.push(data.period);
+      parts.push(data.total_items + ' actividad' + (data.total_items !== 1 ? 'es' : ''));
+      parts.push(data.total_reports + ' reportes');
+      document.getElementById('es-period').textContent = parts.join(' · ');
+      if (!data.total_items) {
+        document.getElementById('es-empty').style.display = '';
+        document.getElementById('es-content').style.display = 'none';
+        return;
+      }
+      document.getElementById('es-empty').style.display = 'none';
+      document.getElementById('es-content').style.display = '';
+      renderKpis(data);
+      renderCharts(data);
+      renderMetrics(data);
+      renderEmployees(data);
+      renderTopCat(data);
+    })
+    .catch(function () { document.getElementById('es-loading').style.display = 'none'; });
+}
+
+// Cargar cuando la vista de empleado es visible (para que los gráficos midan el ancho).
+(function () {
+  var view = document.getElementById('view-employee');
+  var done = false;
+  function go() {
+    if (done || !view || view.classList.contains('hidden')) return;
+    done = true; loadStats();
+  }
+  if (view) { new MutationObserver(go).observe(view, { attributes: true, attributeFilter: ['class'] }); }
+  go();
+})();
+</script>
+{% endblock %}

@@ -45,6 +45,14 @@ theme/static/css/dist/
 .DS_Store
 Thumbs.db
 
+# Office temp lock files
+~$*
+
+# Documentos fuente internos (no commitear: datos sensibles, no usados en runtime)
+PMP Central_INFORME MENSUAL MAYO.pdf
+prod_dump.sql
+backup_*.sql
+
 # Docker
 *.pid
 volumes/
@@ -55,6 +63,7 @@ db/
 !nginx.conf
 !nginx-http.conf
 !nginx-n8n.conf
+!skylog-n8n.conf
 .env
 .venv/
 .claude/
