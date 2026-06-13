@@ -131,7 +131,9 @@ function renderTopCat(data) {
     var sumTotal = 0;
     Object.keys(totalByCode).forEach(function(k){ sumTotal += totalByCode[k]; });
     var totalPct = function(code){ return sumTotal ? Math.round(1000 * (totalByCode[code] || 0) / sumTotal) / 10 : 0; };
-    var empPct   = function(code){ return sel.total ? Math.round(1000 * (sel.categories[code] || 0) / sel.total) / 10 : 0; };
+    // Empleado: aporte respecto al TOTAL general (Ec/T), no a su propio trabajo → su
+    // barra queda como la porción real dentro de la barra del total de la categoría.
+    var empPct   = function(code){ return sumTotal ? Math.round(1000 * (sel.categories[code] || 0) / sumTotal) / 10 : 0; };
     // Con empleado seleccionado: ordenar por el valor DEL EMPLEADO (mayor a menor).
     var rcats = data.categories.filter(function(c){
       return (totalByCode[c.code] || 0) > 0 || (sel.categories[c.code] || 0) > 0;
@@ -278,8 +280,15 @@ function renderCharts(data) {
   //  · Con un empleado seleccionado → empleado + promedio Sup + promedio PM (referencia).
   var roleColor = function(role){ return role === 'supervisor' ? tok('--color-success') : tok('--color-info'); };
   var roleShort = function(role){ return role === 'supervisor' ? 'prom. Sup' : 'prom. PM'; };
-  var pctOf = function(o, code){ return o.total ? Math.round(1000 * (o.categories[code] || 0) / o.total) / 10 : 0; };
   var sel = data.selected_employee;
+  // Con empleado seleccionado: todas las barras = % del TOTAL general (aporte real del
+  // empleado y de cada rol). Sin empleado (vista ejecutiva agregada): % de composición
+  // de cada rol, como antes.
+  var roleTotalAll = 0; data.by_role.forEach(function(r){ roleTotalAll += r.total; });
+  var pctOf = function(o, code){
+    var denom = sel ? roleTotalAll : o.total;
+    return denom ? Math.round(1000 * (o.categories[code] || 0) / denom) / 10 : 0;
+  };
   // Categorías a mostrar: con datos en el empleado o en cualquier rol.
   // Orden: por producción total (suma de ambos roles), mayor arriba.
   var roleVol = function(code){
