@@ -62,6 +62,70 @@ function renderTagList(containerId, items) {
   }).join('');
 }
 
+// Gráfico de barras horizontales (ApexCharts) para un breakdown de tags.
+//  · Si los items traen `segments` (composición por sede) → barras apiladas por sede.
+//  · Si traen `total` (denominador empleado/rol) → muestra "count / total" al final.
+function renderTagChart(key, containerId, items) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  if (!items || !items.length) {
+    if (_charts[key]) { try { _charts[key].destroy(); } catch (e) {} _charts[key] = null; }
+    _chartHeights[key] = null;
+    el.innerHTML = '<p class="text-xs text-base-content/40 py-4 text-center">Sin datos</p>';
+    return;
+  }
+  if (!_charts[key]) el.innerHTML = '';   // limpiar el "Sin datos" antes de crear el chart
+
+  var cats   = items.map(function(t){ return t.name; });
+  var totals = items.map(function(t){ return (t.total != null) ? t.total : null; });
+  var hasSeg = items.some(function(t){ return t.segments && t.segments.length; });
+
+  var series, colors, distributed = false;
+  if (hasSeg) {
+    var sedes = [], sColor = {};
+    items.forEach(function(t){ (t.segments || []).forEach(function(s){
+      if (sedes.indexOf(s.name) < 0) { sedes.push(s.name); sColor[s.name] = s.color || '#888'; }
+    }); });
+    series = sedes.map(function(sd){ return { name: sd, data: items.map(function(t){
+      var seg = (t.segments || []).filter(function(x){ return x.name === sd; })[0];
+      return seg ? seg.count : 0;
+    }) }; });
+    colors = sedes.map(function(sd){ return sColor[sd]; });
+  } else {
+    series = [{ name: 'Actividades', data: items.map(function(t){ return t.count; }) }];
+    colors = items.map(function(t){ return t.color || '#64748b'; });
+    distributed = true;
+  }
+
+  var labelFmt = function(val, o){
+    var i = o && o.dataPointIndex;
+    var t = (i != null) ? totals[i] : null;
+    return (t != null) ? (val + ' / ' + t) : ('' + val);
+  };
+  var labelStyle = { fontSize: '11.5px', fontWeight: 800, colors: [_axisCat()] };
+  // El label de TOTAL de barras apiladas usa `color` (singular), no `colors` (array).
+  var totalStyle = { fontSize: '12px', fontWeight: 800, color: _axisCat() };
+  var labelShadow = { enabled: true, top: 0, left: 0, blur: 2, color: '#000', opacity: 0.55 };
+  var h = Math.max(150, cats.length * 32 + 44);
+
+  upsertChart(key, el, {
+    chart: Object.assign({ type: 'bar', height: h, stacked: hasSeg }, baseChartOpts()),
+    series: series,
+    colors: colors,
+    plotOptions: { bar: Object.assign(
+      { horizontal: true, barHeight: '68%', borderRadius: 3, distributed: distributed },
+      hasSeg ? { dataLabels: { total: { enabled: true, formatter: labelFmt, style: totalStyle } } } : {}
+    ) },
+    dataLabels: hasSeg ? { enabled: false, dropShadow: labelShadow }
+      : { enabled: true, textAnchor: 'start', offsetX: 4, formatter: labelFmt, style: labelStyle, dropShadow: labelShadow },
+    xaxis: { categories: cats, labels: { formatter: function(v){ return Math.round(v); } } },
+    yaxis: { labels: { style: { colors: _axisCat(), fontSize: '12px', fontWeight: 600 } } },
+    legend: { show: false },
+    grid: { borderColor: 'rgba(255,255,255,0.07)' },
+    tooltip: { theme: 'dark', shared: hasSeg, intersect: false },
+  });
+}
+
 function renderTags(data, opts) {
   opts = opts || {};
   // Con un empleado seleccionado, "Por sede" sería una sola sede → ocultar la
@@ -75,17 +139,21 @@ function renderTags(data, opts) {
   var legHtml = '';
   if (perEmp) {
     var first = (data.selected_employee.name || '').trim().split(/\s+/)[0];
+    // El denominador sigue al rol filtrado: "/ Todos", "/ Sup" o "/ PM".
+    var denom = data.role_filter === 'supervisor' ? 'Sup'
+              : data.role_filter === 'project_manager' ? 'PM'
+              : 'Todos';
     legHtml = '<span style="font-weight:700;color:var(--cp-text-hi)">' + _escTag(first)
-      + '</span> <span class="es-tagtot">/ Todos</span>';
+      + '</span> <span class="es-tagtot">/ ' + denom + '</span>';
   }
   ['es-leg-project', 'es-leg-deliverable'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) el.innerHTML = legHtml;
   });
 
-  renderTagList('es-tags-project', data.by_project);
-  if (!hideSede) renderTagList('es-tags-location', data.by_location);
-  renderTagList('es-tags-deliverable', data.by_deliverable);
+  renderTagChart('tagsProject', 'es-tags-project', data.by_project);
+  if (!hideSede) renderTagChart('tagsLocation', 'es-tags-location', data.by_location);
+  renderTagChart('tagsDeliverable', 'es-tags-deliverable', data.by_deliverable);
   // leyenda de colores de sede (para las barras apiladas de proyecto/entregable)
   var leg = document.getElementById('es-sede-legend');
   if (leg) {
@@ -220,12 +288,14 @@ function recolorCharts(color, gridColor, dataLabelColor, yaxisColor) {
         // Los % sobre las barras son SVG (fill): el CSS de impresión no los alcanza,
         // hay que recolorearlos a oscuro para que salgan en el PDF.
         dataLabels: { style: { colors: [dataLabelColor] } },
+        // El label de TOTAL de barras apiladas usa `color` (singular) aparte.
+        plotOptions: { bar: { dataLabels: { total: { style: { color: dataLabelColor } } } } },
       }, false, false);
     } catch (e) {}
   });
 }
 function chartsToPrint() { recolorCharts('#1a1a1a', 'rgba(0,0,0,0.12)', '#1a1a1a', '#1a1a1a'); }
-function chartsToScreen() { recolorCharts(tok('--cp-text-lo') || '#888', 'rgba(255,255,255,0.07)', _textHi(), _axisCat()); }
+function chartsToScreen() { recolorCharts(tok('--cp-text-lo') || '#888', 'rgba(255,255,255,0.07)', _axisCat(), _axisCat()); }
 window.addEventListener('beforeprint', chartsToPrint);
 window.addEventListener('afterprint',  chartsToScreen);
 if (window.matchMedia) {
@@ -331,7 +401,8 @@ function renderCharts(data) {
     yaxis: { labels: { style: { colors: _axisCat(), fontSize: '12px', fontWeight: 600 } } },
     legend: { show: false },
     dataLabels: { enabled: !sel, formatter: function(v){ return v ? v + '%' : ''; },
-                  style: { fontSize: '10px', fontWeight: 700, colors: [_textHi()] } },
+                  style: { fontSize: '11px', fontWeight: 800, colors: [_axisCat()] },
+                  dropShadow: { enabled: true, top: 0, left: 0, blur: 2, color: '#000', opacity: 0.55 } },
     grid: { borderColor: _gridColor },
     plotOptions: { bar: { horizontal: true, barHeight: '70%', dataLabels: { position: 'top' } } },
     tooltip: { theme: 'dark', y: { formatter: function(v){ return v + '%'; } } },
@@ -425,6 +496,13 @@ function renderMetrics(data) {
   document.getElementById('es-met-body').innerHTML = body;
 }
 
+// Abreviatura corta y legible para encabezados de columna (ej: Cronogramas → Cronog.,
+// Supervisión → Superv., Adquisiciones → Adquis.). Tooltip muestra el nombre completo.
+function abbrevCat(label) {
+  var w = (label || '').split(' ')[0];
+  return w.length > 8 ? (w.slice(0, 6) + '.') : w;
+}
+
 function renderEmployees(data) {
   var sel = data.selected_employee;
   // Con un empleado seleccionado: unión de sus categorías y las de los roles (referencia).
@@ -432,7 +510,7 @@ function renderEmployees(data) {
     return c.count > 0 || (sel && data.by_role.some(function(r){ return (r.avg_categories[c.code] || 0) > 0; }));
   });
   var head = '<th>Nombre</th><th class="center">Rol</th><th class="center">Total</th>';
-  cats.forEach(function(c){ head += '<th class="center">' + c.label.split(' ')[0] + '</th>'; });
+  cats.forEach(function(c){ head += '<th class="center" title="' + c.label + '">' + abbrevCat(c.label) + '</th>'; });
   document.getElementById('es-emp-head').innerHTML = head;
 
   var body = '';

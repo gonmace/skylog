@@ -2088,6 +2088,7 @@ class EstadisticasAPIView(APIView):
             'period': period,
             'kind': kind,
             'granularity': gran,
+            'role_filter': role_filter,
             'total_items': total_items,
             'total_reports': len(report_ids),
             'category_labels': cat_labels,
