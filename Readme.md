@@ -230,6 +230,15 @@ http://localhost:8000/dev-login/?role=executive   # crea dev_executive y abre se
 http://localhost:8000/dev-login/?role=employee    # crea dev_employee y abre sesión
 ```
 
+**Simular un empleado real** (impersonar con sus datos reales — útil para revisar "Mis estadísticas", el calendario, etc.):
+
+```
+http://localhost:8000/dev-login/?pick=1          # lista de empleados reales (con su cantidad de datos) para elegir a quién impersonar
+http://localhost:8000/dev-login/?employee=<id>   # impersona directo a ese empleado (por id o nextcloud_username)
+```
+
+Para que los gráficos de estadísticas se vean completos, elegí un empleado **Supervisor o PM con datos**. Tras impersonar, volvé al usuario sintético recargando `http://localhost:8000/dev-login/`.
+
 ### 6. Configurar Nextcloud OAuth2 (dev)
 
 1. En Nextcloud → Configuración → Seguridad → Clientes OAuth2 → Añadir cliente
