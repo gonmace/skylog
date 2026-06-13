@@ -121,10 +121,14 @@ function renderTagChart(key, containerId, items, opts) {
     var t = (i != null) ? totals[i] : null;
     return (t != null) ? (val + ' / ' + t) : ('' + val);
   };
-  var labelStyle = { fontSize: '11.5px', fontWeight: 800, colors: [_axisCat()] };
+  // En barras distribuidas (p.ej. "Por sede") ApexCharts mapea colors[i] a la barra i:
+  // hay que dar UNA entrada por barra, si no solo la 1ª toma el color claro y el resto
+  // cae al gris oscuro por defecto (números ilegibles sobre la barra).
+  var labelStyle = { fontSize: '11.5px', fontWeight: 800,
+                     colors: cats.map(function(){ return _axisCat(); }) };
   // El label de TOTAL de barras apiladas usa `color` (singular), no `colors` (array).
   var totalStyle = { fontSize: '12px', fontWeight: 800, color: _axisCat() };
-  var labelShadow = { enabled: true, top: 0, left: 0, blur: 2, color: '#000', opacity: 0.55 };
+  var labelShadow = { enabled: false };   // sin sombra: los números se leen limpios sobre la barra
   // Nombres en hasta 2 líneas → un poco más de alto por fila. El código solo va en el tooltip.
   var codeByName = {};
   if (opts.showCode) items.forEach(function (t) { if (t.code) codeByName[t.name] = t.code; });
@@ -441,7 +445,7 @@ function renderCharts(data) {
     legend: { show: false },
     dataLabels: { enabled: !sel, formatter: function(v){ return v ? v + '%' : ''; },
                   style: { fontSize: '11px', fontWeight: 800, colors: [_axisCat()] },
-                  dropShadow: { enabled: true, top: 0, left: 0, blur: 2, color: '#000', opacity: 0.55 } },
+                  dropShadow: { enabled: false } },
     grid: { borderColor: _gridColor },
     plotOptions: { bar: { horizontal: true, barHeight: '70%', dataLabels: { position: 'top' } } },
     tooltip: { theme: 'dark', y: { formatter: function(v){ return v + '%'; } } },

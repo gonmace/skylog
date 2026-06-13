@@ -54,23 +54,68 @@
                 0 8px 22px rgba(0,0,0,0.30);
   }
 
-  /* ── PDF / impresión: fondo claro, ocultar controles ─── */
+  /* Helper: visible solo al imprimir / PDF */
+  .print-only { display:none; }
+
+  /* ── PDF / impresión: A4 horizontal, fondo claro, ocultar controles ─── */
+  @page { size: A4 landscape; margin: 12mm; }
+
   @media print {
+    /* Mostrar / ocultar */
     .no-print { display:none !important; }
+    .print-only { display:block !important; }
     .no-print-sticky { position:static !important; }
+    #es-header-card, #es-filters-card, #es-filters-sentinel { display:none !important; }
+
+    /* Tema claro */
     html { color-scheme:light !important; }
     html, body, .min-h-screen, .bg-base-200 { background:#fff !important; }
     /* El tema oscuro pinta el texto blanco: forzar TODO el texto a oscuro.
        Se excluyen los role-pills para conservar su color (Sup./PM). */
     #es-main, #es-main *:not(.es-role-pill) { color:#1a1a1a !important; }
-    .card, .bg-base-100 { background:#fff !important; box-shadow:none !important; border:1px solid #ddd !important; break-inside:avoid; }
+
+    /* El margen lo da @page: anular paddings/anchos del contenedor */
     .max-w-screen-2xl { max-width:100% !important; padding:0 !important; }
-    .es-table tbody tr { border-bottom:1px solid #eee !important; }
+
+    /* Cabecera de impresión (logo + título + período + fecha) */
+    #es-print-header { display:flex !important; align-items:center; gap:14px;
+      padding-bottom:8px; margin-bottom:12px; border-bottom:2px solid #1a1a1a; }
+    #es-print-header .es-ph-logo  { height:46px; width:auto; object-fit:contain; flex:none;
+      -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    #es-print-header .es-ph-text  { flex:1 1 auto; min-width:0; }
+    #es-print-header .es-ph-title { font-size:15pt; font-weight:700; margin:0; }
+    #es-print-header .es-ph-period{ font-size:8.5pt; font-weight:600; color:#444 !important; margin:2px 0 0; }
+    #es-print-header .es-ph-date  { font-size:8pt; color:#666 !important; margin:0; white-space:nowrap; align-self:flex-start; }
+
+    /* Tarjetas */
+    .card, .bg-base-100 { background:#fff !important; box-shadow:none !important;
+      border:1px solid #ddd !important; break-inside:avoid; page-break-inside:avoid; }
+
+    /* No partir gráficos / filas / tag-rows entre páginas; títulos pegados a su contenido */
+    .apexcharts-canvas, #es-chart-dist, #es-chart-role, #es-chart-month,
+    #es-topcat-single, #es-topcat-cmp { break-inside:avoid; page-break-inside:avoid; }
+    .es-table tbody tr, .es-tagrow { break-inside:avoid; page-break-inside:avoid; }
+    #es-content .text-sm.font-bold, #es-content .border-b { break-after:avoid; page-break-after:avoid; }
+
+    /* Compactar separaciones y paddings para aprovechar la página */
+    #es-content .mb-5 { margin-bottom:10px !important; }
+    #es-content .gap-5 { gap:10px !important; }
+    #es-content .gap-3 { gap:8px !important; }
+    #es-content .px-6, #es-content .px-7 { padding-left:14px !important; padding-right:14px !important; }
+    #es-content .py-5 { padding-top:12px !important; padding-bottom:12px !important; }
+    #es-content .py-4 { padding-top:8px !important; padding-bottom:8px !important; }
+
+    /* Grids: forzar columnas (las utilidades lg: de Tailwind no aplican en print) */
+    #es-content .lg\:grid-cols-5 { grid-template-columns:repeat(5,minmax(0,1fr)) !important; }
+    #es-content .lg\:grid-cols-2 { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+
     /* Tablas anchas (métricas y desglose por empleado): ajustar al ancho de la página */
     .overflow-x-auto { overflow:visible !important; }
-    .es-table { font-size:0.58rem !important; white-space:normal !important; table-layout:fixed; width:100% !important; }
+    .es-table { font-size:0.62rem !important; white-space:normal !important; table-layout:fixed; width:100% !important; }
     .es-table thead th, .es-table tbody td { padding:3px 4px !important; }
     .es-table thead th:first-child, .es-table tbody td:first-child { padding-left:6px !important; }
+    .es-table tbody tr { border-bottom:1px solid #eee !important; }
+
     /* Conservar colores de gráficos, barras de Top categorías, dots de leyendas/tablas y pills */
     .apexcharts-canvas, #es-topcat [style], #es-met-body [style*="background"],
     #es-sede-legend [style*="background"], .es-leg-dot, .es-role-pill,
@@ -106,7 +151,7 @@
     </div>
 
     <!-- Header (scrollea con la página) -->
-    <div class="card bg-base-100 shadow overflow-hidden mb-3">
+    <div id="es-header-card" class="card bg-base-100 shadow overflow-hidden mb-3">
       <div class="flex items-center justify-between flex-wrap gap-3 px-7 py-5">
         <div>
           <p class="text-lg font-bold tracking-tight">Estadísticas de Actividades</p>
@@ -117,6 +162,16 @@
           PDF
         </button>
       </div>
+    </div>
+
+    <!-- Cabecera solo para PDF/impresión (una vez, arriba del documento) -->
+    <div id="es-print-header" class="print-only">
+      <img src="{% static 'img/logo_RL_EMBOL.png' %}" alt="RedLine GS — EMBOL" class="es-ph-logo">
+      <div class="es-ph-text">
+        <p class="es-ph-title">Estadísticas de Actividades</p>
+        <p id="es-print-period" class="es-ph-period"></p>
+      </div>
+      <p id="es-gen-date" class="es-ph-date"></p>
     </div>
 
     <!-- Filtros: sticky al llegar arriba (el header scrollea) -->
@@ -284,17 +339,17 @@
 
       <!-- Proyectos / Ubicaciones / Entregables (tags extraídos por el LLM) -->
       <div id="es-sede-legend" class="flex flex-wrap items-center gap-3 mb-2 text-xs text-base-content/60"></div>
-      <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.8fr)_minmax(0,1.1fr)] gap-5 mb-5">
+      <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1.1fr)] gap-5 mb-5">
+        <div id="es-card-sede" class="card bg-base-100 shadow px-6 py-5">
+          <p class="text-sm font-bold mb-3">Por sede <span class="text-base-content/40 font-normal text-xs">· actividades</span></p>
+          <div id="es-tags-location" class="es-taglist"></div>
+        </div>
         <div class="card bg-base-100 shadow px-6 py-5">
           <div class="flex items-baseline justify-between mb-3">
             <p class="text-sm font-bold">Por proyecto <span class="text-base-content/40 font-normal text-xs">· actividades</span></p>
             <span id="es-leg-project" class="text-xs"></span>
           </div>
           <div id="es-tags-project" class="es-taglist"></div>
-        </div>
-        <div id="es-card-sede" class="card bg-base-100 shadow px-6 py-5">
-          <p class="text-sm font-bold mb-3">Por sede <span class="text-base-content/40 font-normal text-xs">· actividades</span></p>
-          <div id="es-tags-location" class="es-taglist"></div>
         </div>
         <div class="card bg-base-100 shadow px-6 py-5">
           <div class="flex items-baseline justify-between mb-3">
@@ -432,7 +487,11 @@ function loadStats() {
       if (data.selected_employee) parts.push(data.selected_employee.name);
       parts.push(data.total_items + ' actividad' + (data.total_items !== 1 ? 'es' : ''));
       parts.push(data.total_reports + ' reportes');
-      document.getElementById('es-period').textContent = parts.join(' · ');
+      var periodText = parts.join(' · ');
+      document.getElementById('es-period').textContent = periodText;
+      // Espejo del período en la cabecera de impresión (PDF)
+      var _pp = document.getElementById('es-print-period');
+      if (_pp) _pp.textContent = periodText;
       populateEmployeeFilter(data);
       if (!data.total_items) {
         document.getElementById('es-empty').style.display = '';
@@ -562,6 +621,13 @@ function _setupStickyOutline() {
       }
       document.getElementById('es-main').style.display = '';
       _setupStickyOutline();
+
+      // Fecha de generación para la cabecera del PDF (se fija una vez al cargar)
+      var _gd = new Date();
+      var _gdEl = document.getElementById('es-gen-date');
+      if (_gdEl) _gdEl.textContent = 'Generado: '
+        + _gd.toLocaleDateString('es-BO', { day: '2-digit', month: 'long', year: 'numeric' })
+        + ' ' + _gd.toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' });
 
       var now = new Date();
       var y = now.getFullYear();
