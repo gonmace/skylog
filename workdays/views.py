@@ -1844,8 +1844,9 @@ def _tag_breakdown(qs, kind, top=12, split_by_sede=False, total_qs=None):
     from collections import defaultdict
     from django.db.models import Count
     rows = (qs.filter(tags__kind=kind, tags__ignored=False)
-            .values('tags__id', 'tags__name', 'tags__color',
-                    'tags__canonical_id', 'tags__canonical__name', 'tags__canonical__color')
+            .values('tags__id', 'tags__name', 'tags__color', 'tags__code',
+                    'tags__canonical_id', 'tags__canonical__name', 'tags__canonical__color',
+                    'tags__canonical__code')
             .annotate(n=Count('id')))
     agg = {}
     for r in rows:
@@ -1854,7 +1855,8 @@ def _tag_breakdown(qs, kind, top=12, split_by_sede=False, total_qs=None):
             continue
         name = r['tags__canonical__name'] or r['tags__name']
         color = (r['tags__canonical__color'] if r['tags__canonical_id'] else r['tags__color']) or ''
-        bucket = agg.setdefault(cid, {'id': cid, 'name': name, 'color': color, 'count': 0})
+        code = (r['tags__canonical__code'] if r['tags__canonical_id'] else r['tags__code']) or ''
+        bucket = agg.setdefault(cid, {'id': cid, 'name': name, 'code': code, 'color': color, 'count': 0})
         bucket['count'] += r['n']
 
     if split_by_sede:

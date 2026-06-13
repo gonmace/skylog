@@ -62,10 +62,29 @@ function renderTagList(containerId, items) {
   }).join('');
 }
 
+// Parte un nombre largo en hasta 2 líneas (corte por palabra cerca de la mitad).
+// Devuelve un array → ApexCharts lo renderiza multilínea en el eje.
+function _wrapTagLabel(name, maxChars) {
+  maxChars = maxChars || 22;
+  if (name.length <= maxChars) return [name];
+  var words = name.split(' '), l1 = '', l2 = '';
+  words.forEach(function (w) {
+    if (!l1 || (!l2 && (l1.length + 1 + w.length) <= maxChars)) {
+      l1 = l1 ? (l1 + ' ' + w) : w;
+    } else {
+      l2 = l2 ? (l2 + ' ' + w) : w;
+    }
+  });
+  if (!l2) { l1 = name.slice(0, maxChars); l2 = name.slice(maxChars); }   // palabra única muy larga
+  return [l1, l2];
+}
+
 // Gráfico de barras horizontales (ApexCharts) para un breakdown de tags.
 //  · Si los items traen `segments` (composición por sede) → barras apiladas por sede.
 //  · Si traen `total` (denominador empleado/rol) → muestra "count / total" al final.
-function renderTagChart(key, containerId, items) {
+//  · opts.showCode → nombres en 2 líneas (si no entran); el código va solo en el tooltip.
+function renderTagChart(key, containerId, items, opts) {
+  opts = opts || {};
   var el = document.getElementById(containerId);
   if (!el) return;
   if (!items || !items.length) {
@@ -106,7 +125,27 @@ function renderTagChart(key, containerId, items) {
   // El label de TOTAL de barras apiladas usa `color` (singular), no `colors` (array).
   var totalStyle = { fontSize: '12px', fontWeight: 800, color: _axisCat() };
   var labelShadow = { enabled: true, top: 0, left: 0, blur: 2, color: '#000', opacity: 0.55 };
-  var h = Math.max(150, cats.length * 32 + 44);
+  // Nombres en hasta 2 líneas → un poco más de alto por fila. El código solo va en el tooltip.
+  var codeByName = {};
+  if (opts.showCode) items.forEach(function (t) { if (t.code) codeByName[t.name] = t.code; });
+  var h = Math.max(150, cats.length * (opts.showCode ? 40 : 32) + 44);
+
+  // Etiquetas del eje Y: solo en proyecto (showCode) partimos el nombre en 2 líneas y
+  // recentramos con offsetY. Importante: NO setear claves en `undefined` (ApexCharts las
+  // mergea sobre sus defaults y rompe, p. ej. tooltip.x.formatter).
+  var yLabels = { style: { colors: _axisCat(), fontSize: '12px', fontWeight: 600 } };
+  if (opts.showCode) {
+    yLabels.maxWidth = 230;
+    yLabels.offsetY = 6;
+    yLabels.formatter = function (v) { return _wrapTagLabel(String(v), 22); };
+  }
+  // El código del proyecto solo se muestra al pasar el mouse, como título del tooltip.
+  var tooltipOpts = { theme: 'dark', shared: hasSeg, intersect: false };
+  if (opts.showCode) {
+    tooltipOpts.x = { formatter: function (v) {
+      return codeByName[v] ? (v + ' · ' + codeByName[v]) : v;
+    } };
+  }
 
   upsertChart(key, el, {
     chart: Object.assign({ type: 'bar', height: h, stacked: hasSeg }, baseChartOpts()),
@@ -119,10 +158,10 @@ function renderTagChart(key, containerId, items) {
     dataLabels: hasSeg ? { enabled: false, dropShadow: labelShadow }
       : { enabled: true, textAnchor: 'start', offsetX: 4, formatter: labelFmt, style: labelStyle, dropShadow: labelShadow },
     xaxis: { categories: cats, labels: { formatter: function(v){ return Math.round(v); } } },
-    yaxis: { labels: { style: { colors: _axisCat(), fontSize: '12px', fontWeight: 600 } } },
+    yaxis: { labels: yLabels },
     legend: { show: false },
     grid: { borderColor: 'rgba(255,255,255,0.07)' },
-    tooltip: { theme: 'dark', shared: hasSeg, intersect: false },
+    tooltip: tooltipOpts,
   });
 }
 
@@ -151,7 +190,7 @@ function renderTags(data, opts) {
     if (el) el.innerHTML = legHtml;
   });
 
-  renderTagChart('tagsProject', 'es-tags-project', data.by_project);
+  renderTagChart('tagsProject', 'es-tags-project', data.by_project, { showCode: true });
   if (!hideSede) renderTagChart('tagsLocation', 'es-tags-location', data.by_location);
   renderTagChart('tagsDeliverable', 'es-tags-deliverable', data.by_deliverable);
   // leyenda de colores de sede (para las barras apiladas de proyecto/entregable)
