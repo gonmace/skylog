@@ -24,6 +24,13 @@
   .tg-emp-chip { font-size:0.74rem;padding:2px 8px;border-radius:99px;background:rgba(255,255,255,0.06);color:var(--cp-text-mid);white-space:nowrap; }
   .tg-emps { display:flex;flex-wrap:wrap;gap:4px;max-width:560px; }
   .tg-actions { display:flex;gap:2px;white-space:nowrap; }
+  /* JS-generated: clase asignada por renderRow()/tgDateCell() según la antigüedad de la última actividad */
+  .tg-date span { font-size:0.78rem;padding:2px 9px;border-radius:99px;white-space:nowrap; }
+  .tg-date-new  { background:color-mix(in srgb,var(--cp-green) 34%,transparent);color:var(--cp-green);font-weight:700; }
+  .tg-date-1w   { background:color-mix(in srgb,var(--cp-green) 15%,transparent);color:color-mix(in srgb,var(--cp-green) 80%,var(--cp-text-mid));font-weight:600; }
+  .tg-date-2w   { color:var(--cp-text-mid);opacity:0.85; }
+  .tg-date-old  { color:var(--cp-text-lo);opacity:0.5; }
+  .tg-date-none { color:var(--cp-text-lo);opacity:0.4; }
 </style>
 
 <!-- Acceso denegado (no ejecutivo) -->
@@ -80,13 +87,14 @@
             <th style="width:34px"></th>
             <th>Nombre</th>
             <th style="width:90px">Actividades</th>
+            <th style="width:120px">Última actividad</th>
             <th>Empleados</th>
             <th style="width:90px">Variantes</th>
             <th style="width:72px"></th>
           </tr>
         </thead>
         <tbody id="tg-rows">
-          <tr><td colspan="6" class="text-center text-base-content/40 py-10">Cargando…</td></tr>
+          <tr><td colspan="7" class="text-center text-base-content/40 py-10">Cargando…</td></tr>
         </tbody>
       </table>
     </div>
@@ -186,6 +194,20 @@ function viewTags() {
   });
 }
 
+// Celda "Última actividad": color fuerte para las recientes, degradado para las viejas.
+function tgDateCell(iso) {
+  if (!iso) return '<td class="tg-date"><span class="tg-date-none">—</span></td>';
+  var d = new Date(iso + 'T00:00:00');
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var age = Math.round((today - d) / 86400000);   // días desde la última actividad
+  var cls = age <= 2 ? 'tg-date-new'
+          : age <= 9 ? 'tg-date-1w'
+          : age <= 21 ? 'tg-date-2w'
+          : 'tg-date-old';
+  var label = d.toLocaleDateString('es-BO', { day: '2-digit', month: 'short' });
+  return '<td class="tg-date"><span class="' + cls + '" title="' + iso + '">' + label + '</span></td>';
+}
+
 function render() {
   var rows = document.getElementById('tg-rows');
   var empty = document.getElementById('tg-empty');
@@ -212,6 +234,7 @@ function render() {
       + '<td><span class="tg-name">' + escapeHtml(t.name) + '</span>'
       + (t.code ? ' <span class="tg-code">' + escapeHtml(t.code) + '</span>' : '') + '</td>'
       + '<td class="tg-count">' + t.count + '</td>'
+      + tgDateCell(t.last_activity)
       + '<td class="tg-emps">' + (empChips || '<span class="text-base-content/30">—</span>') + '</td>'
       + '<td>' + aliases + '</td>'
       + '<td class="tg-actions">'
@@ -238,7 +261,7 @@ function toggleEmployees(id) {
       }).join('');
       var tr = document.createElement('tr');
       tr.id = 'tg-emp-' + id;
-      tr.innerHTML = '<td></td><td colspan="4" class="tg-emp-detail">'
+      tr.innerHTML = '<td></td><td colspan="5" class="tg-emp-detail">'
         + (emps || '<span class="text-base-content/40">Sin empleados</span>') + '</td>';
       row.parentNode.insertBefore(tr, row.nextSibling);
     })
@@ -258,7 +281,7 @@ function toggleAliases(id) {
   }).join('');
   var tr = document.createElement('tr');
   tr.id = 'tg-ali-' + id;
-  tr.innerHTML = '<td></td><td colspan="4" class="tg-emp-detail">'
+  tr.innerHTML = '<td></td><td colspan="5" class="tg-emp-detail">'
     + '<span class="text-base-content/40 mr-1">Variantes asociadas:</span>' + chips + '</td>';
   row.parentNode.insertBefore(tr, row.nextSibling);
 }

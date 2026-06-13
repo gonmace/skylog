@@ -382,7 +382,7 @@ class TagsListView(APIView):
 
     def get(self, request):
         from collections import defaultdict
-        from django.db.models import Count
+        from django.db.models import Count, Max
         from .models import ActivityTag
         try:
             emp = request.user.employee
@@ -410,23 +410,31 @@ class TagsListView(APIView):
         emp_by_canon = defaultdict(lambda: defaultdict(int))
         people = {}                        # emp_id -> name (para el filtro)
         per_emp_canon = defaultdict(set)   # emp_id -> {canonical tag ids}
+        last_by_canon = {}                 # canonical tag id -> fecha de actividad más reciente
         emp_rows = (ActivityItem.objects
                     .filter(tags__kind=kind, tags__ignored=False)
                     .values('tags__id', 'tags__canonical_id',
                             'report__workday__employee_id',
                             'report__workday__employee__full_name')
-                    .annotate(n=Count('id', distinct=True)))
+                    .annotate(n=Count('id', distinct=True),
+                              last=Max('report__workday__start_time')))
         for r in emp_rows:
             cid = r['tags__canonical_id'] or r['tags__id']
             eid = r['report__workday__employee_id']
             name = r['report__workday__employee__full_name']
-            if cid in agg and name:
+            if cid not in agg:
+                continue
+            if r['last'] and (cid not in last_by_canon or r['last'] > last_by_canon[cid]):
+                last_by_canon[cid] = r['last']
+            if name:
                 emp_by_canon[cid][name] += r['n']
                 people[eid] = name
                 per_emp_canon[eid].add(cid)
         for cid, v in agg.items():
             emps = sorted(emp_by_canon.get(cid, {}).items(), key=lambda x: (-x[1], x[0].lower()))
             v['employees'] = [{'name': n, 'count': c} for n, c in emps]
+            dt = last_by_canon.get(cid)
+            v['last_activity'] = timezone.localtime(dt).date().isoformat() if dt else None
 
         # Mostrar tags con ítems, o los oficiales (con `code`) aunque tengan 0 — son
         # el destino para asociar variantes. Se ocultan los huérfanos sin código ni ítems.
