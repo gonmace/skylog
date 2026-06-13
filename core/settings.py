@@ -10,6 +10,9 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='', cast=Csv())
 
+# Llamadas internas (n8n → Django) usan el nombre del servicio Docker como Host.
+ALLOWED_HOSTS += ['django']
+
 if DEBUG:
     ALLOWED_HOSTS += ['host.docker.internal']
 
