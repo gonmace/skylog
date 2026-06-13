@@ -8,7 +8,7 @@ from .views import (
     ReporteAPIView, ReporteExportView, CertificadoExportView, ResetMobileDeviceView,
     EmployeePendingMessagesView, EmployeeViewDataView, CloseStaleWorkdaysView, CloseDayMessagesView,
     DoneActivitiesView, ClassifyDoneView, TagsListView, TagMergeView, TagIgnoreView,
-    TagUnmergeView, TagRenameView, TagEmployeesView, EstadisticasAPIView, MisEstadisticasView,
+    TagUnmergeView, TagRenameView, TagCreateView, TagEmployeesView, EstadisticasAPIView, MisEstadisticasView,
     MessageLeadsView, AdminPermissionsListView, AdminPermissionsUpdateView,
 )
 
@@ -47,6 +47,7 @@ urlpatterns = [
     path('estadisticas/', EstadisticasAPIView.as_view()),
     path('mis-estadisticas/', MisEstadisticasView.as_view()),
     path('tags/', TagsListView.as_view()),
+    path('tags/create/', TagCreateView.as_view()),
     path('tags/merge/', TagMergeView.as_view()),
     path('tags/unmerge/', TagUnmergeView.as_view()),
     path('tags/ignore/', TagIgnoreView.as_view()),

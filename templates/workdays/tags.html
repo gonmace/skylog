@@ -77,7 +77,38 @@
               class="select select-sm select-bordered bg-base-100">
         <option value="">Todos los empleados</option>
       </select>
+      <!-- Crear: solo para Proyectos y Entregables (las Sedes salen de los reportes) -->
+      <button id="tg-new-btn" class="btn-tinted btn-sm gap-1.5 text-info ml-auto" onclick="openCreate()">
+        + Nuevo
+      </button>
     </div>
+
+    <!-- Modal: crear proyecto / entregable -->
+    <dialog id="tg-create-dialog" class="modal">
+      <div class="modal-box max-w-sm">
+        <h3 id="tg-create-title" class="text-base font-semibold text-base-content">Nuevo proyecto</h3>
+        <div class="mt-4 flex flex-col gap-3">
+          <label class="flex flex-col gap-1">
+            <span class="text-sm text-base-content/70">Nombre</span>
+            <input id="tg-create-name" type="text" placeholder="Nombre"
+                   class="input input-sm input-bordered bg-base-100 w-full"
+                   onkeydown="if(event.key==='Enter')submitCreate()">
+          </label>
+          <label id="tg-create-code-wrap" class="flex flex-col gap-1">
+            <span class="text-sm text-base-content/70">Código</span>
+            <input id="tg-create-code" type="text" placeholder="Ej. CMT.LPZ.MQ.2668"
+                   class="input input-sm input-bordered bg-base-100 w-full"
+                   onkeydown="if(event.key==='Enter')submitCreate()">
+          </label>
+          <p id="tg-create-err" style="display:none" class="text-sm text-error"></p>
+        </div>
+        <div class="modal-action mt-5">
+          <button class="btn-ghost-tinted btn-sm text-base-content/60" onclick="closeCreate()">Cancelar</button>
+          <button class="btn-tinted btn-sm text-info" onclick="submitCreate()">Crear</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>cerrar</button></form>
+    </dialog>
 
     <!-- Tabla -->
     <div class="mt-3 rounded-lg border border-base-content/10 bg-base-100 overflow-hidden">
@@ -162,9 +193,63 @@ function setKind(k) {
   });
   var s = document.getElementById('tg-search');
   if (s) s.value = '';
+  // El botón "Nuevo" solo aplica a Proyectos y Entregables (las Sedes salen de los reportes).
+  var nb = document.getElementById('tg-new-btn');
+  if (nb) nb.style.display = (k === 'location') ? 'none' : '';
   _emp = '';
   clearSel();
   load();
+}
+
+// ── Crear proyecto / entregable ──────────────────────────────────────────────
+function openCreate() {
+  var isProject = _kind === 'project';
+  document.getElementById('tg-create-title').textContent =
+    isProject ? 'Nuevo proyecto' : 'Nuevo entregable';
+  // El código solo se pide para proyectos.
+  document.getElementById('tg-create-code-wrap').style.display = isProject ? '' : 'none';
+  document.getElementById('tg-create-name').value = '';
+  document.getElementById('tg-create-code').value = '';
+  var err = document.getElementById('tg-create-err');
+  err.style.display = 'none'; err.textContent = '';
+  document.getElementById('tg-create-dialog').showModal();
+  document.getElementById('tg-create-name').focus();
+}
+
+function closeCreate() {
+  document.getElementById('tg-create-dialog').close();
+}
+
+function submitCreate() {
+  var name = document.getElementById('tg-create-name').value.trim();
+  var code = document.getElementById('tg-create-code').value.trim();
+  var err = document.getElementById('tg-create-err');
+  if (!name) {
+    err.textContent = 'El nombre es obligatorio.';
+    err.style.display = '';
+    return;
+  }
+  var body = { kind: _kind, name: name };
+  if (_kind === 'project') body.code = code;
+  apiFetch('/api/tags/create/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json().then(function (d) { return { ok: res.ok, data: d }; });
+    })
+    .then(function (r) {
+      if (!r.ok) {
+        err.textContent = (r.data && r.data.error) || 'No se pudo crear.';
+        err.style.display = '';
+        return;
+      }
+      closeCreate();
+      load();
+    })
+    .catch(function (e) { if (e !== 'forbidden') console.error(e); });
 }
 
 function load() {

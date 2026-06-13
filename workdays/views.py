@@ -561,6 +561,54 @@ class TagRenameView(APIView):
         return Response({'id': tag.id, 'name': tag.name})
 
 
+class TagCreateView(APIView):
+    """Crea manualmente un tag de proyecto (con código) o entregable. Las sedes
+    (`location`) no se crean a mano: salen de los reportes. Solo ejecutivos.
+
+    Si ya existe un tag con la misma `key` normalizada para ese `kind`, lo reutiliza
+    (lo desarchiva si estaba `ignored`) en vez de duplicar."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from core.textutils import normalize
+        from .models import ActivityTag
+        try:
+            emp = request.user.employee
+        except Exception:
+            return Response({'error': 'Perfil no encontrado'}, status=404)
+        if not (emp.is_executive or emp.can_edit_tags):
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        kind = request.data.get('kind')
+        if kind not in (ActivityTag.KIND_PROJECT, ActivityTag.KIND_DELIVERABLE):
+            return Response({'error': 'Solo se pueden crear proyectos o entregables'}, status=400)
+        name = (request.data.get('name') or '').strip()[:120]
+        if not name:
+            return Response({'error': 'El nombre es obligatorio'}, status=400)
+        code = (request.data.get('code') or '').strip()[:40]
+        key = normalize(name)[:120]
+        if not key:
+            return Response({'error': 'Nombre inválido'}, status=400)
+
+        tag, created = ActivityTag.objects.get_or_create(
+            kind=kind, key=key,
+            defaults={'name': name, 'code': code},
+        )
+        if not created:
+            # Ya existía: desarchivar y actualizar código si vino uno nuevo.
+            changed = []
+            if tag.ignored:
+                tag.ignored = False
+                changed.append('ignored')
+            if code and tag.code != code:
+                tag.code = code
+                changed.append('code')
+            if changed:
+                tag.save(update_fields=changed)
+        return Response({'id': tag.id, 'name': tag.name, 'code': tag.code,
+                         'created': created}, status=201 if created else 200)
+
+
 class TagEmployeesView(APIView):
     """Empleados que trabajaron en un tag (proyecto/ubicación/entregable), incluyendo
     los ítems de sus alias. Para el cruce tag↔empleado en el dashboard. Solo ejecutivos."""
