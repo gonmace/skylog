@@ -21,13 +21,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:8020/api/internal/close-stale-workdays/",
+        "url": "={{ $env.DJANGO_INTERNAL_URL }}/api/internal/close-stale-workdays/",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "X-Internal-Token",
-              "value": "1439ea6f6bb4418a9bb585b004867729c0b2d0a4097137c6174e5ea295f9ff03"
+              "value": "={{ $env.INTERNAL_API_TOKEN }}"
             }
           ]
         },
