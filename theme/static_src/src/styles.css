@@ -6,6 +6,7 @@
 @source "../../../workdays";
 @source "../../../screenshots";
 @source "../../../authentication";
+@source "../../../visits";
 @plugin "@tailwindcss/forms";
 @plugin "@tailwindcss/typography";
 @plugin "daisyui" {

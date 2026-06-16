@@ -544,6 +544,7 @@
     _showIf('exec-link-stats',    profile && (profile.is_superuser || profile.can_view_stats));
     _showIf('exec-link-tags',     profile && (profile.is_superuser || profile.can_edit_tags));
     _showIf('exec-btn-leads',     profile && (profile.is_executive || profile.can_message_leads));
+    _showIf('exec-link-visits',   profile && (profile.is_superuser || profile.can_manage_visits));
     _showIf('exec-link-permisos', profile && profile.is_superuser);
 
     if (profile && profile.is_superuser) {

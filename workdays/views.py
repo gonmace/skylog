@@ -1084,6 +1084,7 @@ class AdminPermissionsListView(APIView):
             'can_view_stats': e.can_view_stats,
             'can_edit_tags': e.can_edit_tags,
             'can_view_report': e.can_view_report,
+            'can_manage_visits': e.can_manage_visits,
         } for e in employees]
         return Response(data)
 
@@ -1091,7 +1092,7 @@ class AdminPermissionsListView(APIView):
 class AdminPermissionsUpdateView(APIView):
     """Superuser: habilita/deshabilita un permiso granular de un empleado."""
     permission_classes = [IsAuthenticated]
-    ALLOWED_FIELDS = {'can_message_leads', 'can_view_stats', 'can_edit_tags', 'can_view_report'}
+    ALLOWED_FIELDS = {'can_message_leads', 'can_view_stats', 'can_edit_tags', 'can_view_report', 'can_manage_visits'}
 
     def post(self, request, employee_id):
         if not request.user.is_superuser:
@@ -1915,11 +1916,18 @@ class EstadisticasAPIView(APIView):
         from django.db.models.functions import TruncMonth, TruncWeek
         from .models import ActivityItem, ActivityCategory
 
+        # Acceso global: ejecutivo, can_view_stats, o visitante externo (rol "visita").
+        allowed = False
         try:
             executive = request.user.employee
+            allowed = executive.is_executive or executive.can_view_stats
         except Exception:
-            return Response({'error': 'Perfil no encontrado'}, status=404)
-        if not (executive.is_executive or executive.can_view_stats):
+            from visits.models import Visitor
+            try:
+                allowed = request.user.visitor.is_active
+            except Visitor.DoesNotExist:
+                allowed = False
+        if not allowed:
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
         mode = request.query_params.get('mode', 'month')

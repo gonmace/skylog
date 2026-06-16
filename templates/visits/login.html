@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Acceso a estadísticas{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-base-200 flex items-center justify-center p-6">
+  <div class="card bg-base-100 shadow-xl w-full max-w-sm">
+    <div class="card-body items-center gap-6">
+
+      <div class="flex flex-col items-center gap-3">
+        <img src="{% static 'img/logo_RL.png' %}" alt="RedLine GS" class="h-14 w-auto object-contain">
+        <p class="text-sm text-base-content/50">Acceso a estadísticas</p>
+      </div>
+
+      <div id="vl-error" class="alert alert-error text-sm py-2 hidden w-full">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span id="vl-error-text"></span>
+      </div>
+
+      <!-- Paso 1: correo -->
+      <div id="vl-step-email" class="w-full flex flex-col gap-3">
+        <input id="vl-email" type="email" placeholder="Correo"
+          autocomplete="username" autocapitalize="none"
+          class="input input-bordered w-full">
+        <button id="vl-continue" class="btn-tinted w-full text-info" onclick="checkEmail()">Continuar</button>
+      </div>
+
+      <!-- Paso 2: contraseña (crear o ingresar) -->
+      <div id="vl-step-pass" class="w-full flex flex-col gap-3" style="display:none">
+        <p id="vl-greeting" class="text-sm text-base-content/60 text-center"></p>
+        <p id="vl-pass-hint" class="text-xs text-base-content/45 text-center"></p>
+        <input id="vl-pass" type="password" placeholder="Contraseña"
+          autocomplete="current-password" class="input input-bordered w-full">
+        <input id="vl-pass2" type="password" placeholder="Repetir contraseña"
+          autocomplete="new-password" class="input input-bordered w-full" style="display:none">
+        <button id="vl-submit" class="btn-tinted w-full text-success" onclick="submitPass()">Entrar</button>
+        <button class="btn-ghost-tinted btn-sm text-base-content/50" onclick="backToEmail()">← Cambiar correo</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  if (localStorage.getItem('access')) {
+    // Si ya hay sesión, ir directo a estadísticas.
+    window.location.href = '/estadisticas/';
+  }
+
+  var _email = '';
+  var _mode = '';  // 'create' | 'login'
+
+  var emailInput = document.getElementById('vl-email');
+  var passInput  = document.getElementById('vl-pass');
+  var pass2Input = document.getElementById('vl-pass2');
+  var errBox     = document.getElementById('vl-error');
+  var errText    = document.getElementById('vl-error-text');
+
+  emailInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') checkEmail(); });
+  [passInput, pass2Input].forEach(function (el) {
+    el.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitPass(); });
+  });
+
+  function showError(msg) { errText.textContent = msg; errBox.classList.remove('hidden'); }
+  function clearError() { errBox.classList.add('hidden'); }
+
+  function checkEmail() {
+    var email = emailInput.value.trim().toLowerCase();
+    clearError();
+    if (!email) { showError('Ingresa tu correo.'); return; }
+    var btn = document.getElementById('vl-continue');
+    btn.disabled = true; btn.textContent = 'Verificando…';
+    fetch('/api/visits/auth/check/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.exists) { showError('Este correo no está autorizado. Contacta al administrador.'); return; }
+        _email = email;
+        _mode = d.has_password ? 'login' : 'create';
+        document.getElementById('vl-greeting').textContent = d.full_name ? ('Hola, ' + d.full_name) : '';
+        if (_mode === 'create') {
+          document.getElementById('vl-pass-hint').textContent = 'Es tu primer ingreso: crea una contraseña.';
+          pass2Input.style.display = '';
+          passInput.placeholder = 'Nueva contraseña';
+          passInput.setAttribute('autocomplete', 'new-password');
+          document.getElementById('vl-submit').textContent = 'Crear y entrar';
+        } else {
+          document.getElementById('vl-pass-hint').textContent = '';
+          pass2Input.style.display = 'none';
+          passInput.placeholder = 'Contraseña';
+          passInput.setAttribute('autocomplete', 'current-password');
+          document.getElementById('vl-submit').textContent = 'Entrar';
+        }
+        document.getElementById('vl-step-email').style.display = 'none';
+        document.getElementById('vl-step-pass').style.display = '';
+        passInput.focus();
+      })
+      .catch(function () { showError('Error de conexión. Intenta de nuevo.'); })
+      .then(function () { btn.disabled = false; btn.textContent = 'Continuar'; });
+  }
+
+  function backToEmail() {
+    clearError();
+    passInput.value = ''; pass2Input.value = '';
+    document.getElementById('vl-step-pass').style.display = 'none';
+    document.getElementById('vl-step-email').style.display = '';
+    emailInput.focus();
+  }
+
+  function submitPass() {
+    clearError();
+    var password = passInput.value;
+    if (!password) { showError('Ingresa la contraseña.'); return; }
+    if (_mode === 'create' && password !== pass2Input.value) { showError('Las contraseñas no coinciden.'); return; }
+
+    var url = _mode === 'create' ? '/api/visits/auth/set-password/' : '/api/visits/auth/login/';
+    var btn = document.getElementById('vl-submit');
+    btn.disabled = true; btn.textContent = 'Ingresando…';
+    fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: _email, password: password })
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) { showError(res.d.error || 'No se pudo ingresar.'); return; }
+        localStorage.setItem('access', res.d.access);
+        localStorage.setItem('refresh', res.d.refresh);
+        window.location.href = '/estadisticas/';
+      })
+      .catch(function () { showError('Error de conexión. Intenta de nuevo.'); })
+      .then(function () {
+        btn.disabled = false;
+        btn.textContent = _mode === 'create' ? 'Crear y entrar' : 'Entrar';
+      });
+  }
+</script>
+{% endblock %}

@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'screenshots',
     'authentication',
     'agent_ws',
+    'visits',
 
     'django.contrib.admin',
     'django.contrib.auth',

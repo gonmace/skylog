@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Visitas — RedLine GS{% endblock %}
+
+{% block content %}
+<style>
+  /* JS-generated: toggles inyectados por render() en la tabla de visitas */
+  .ios-toggle { position:relative;display:inline-block;width:32px;height:18px;flex-shrink:0;vertical-align:middle; }
+  .ios-toggle input { opacity:0;width:0;height:0;position:absolute; }
+  .ios-toggle-track { position:absolute;inset:0;border-radius:18px;background:rgba(128,128,128,0.25);border:1px solid var(--cp-divider);cursor:pointer;transition:background .25s,border-color .25s,box-shadow .25s; }
+  .ios-toggle input:checked + .ios-toggle-track { background:var(--cp-blue);border-color:var(--cp-blue);box-shadow:0 0 8px color-mix(in srgb,var(--cp-blue) 35%,transparent); }
+  .ios-toggle-track::after { content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.40);transition:transform .25s cubic-bezier(.34,1.4,.64,1); }
+  .ios-toggle input:checked + .ios-toggle-track::after { transform:translateX(14px); }
+</style>
+
+<!-- Acceso denegado -->
+<div id="vm-denied" style="display:none" class="min-h-screen bg-base-200 flex items-center justify-center p-6">
+  <div class="text-center text-base-content/60">
+    <p class="text-lg font-semibold">Acceso restringido</p>
+    <p class="text-sm mt-1">No tienes permiso para gestionar visitas.</p>
+    <a href="/dashboard/executive/" class="btn-tinted btn-sm mt-4 text-info">Volver al panel</a>
+  </div>
+</div>
+
+<div id="vm-main" style="display:none" class="min-h-screen bg-base-200">
+  <div class="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+    <div class="mb-3.5">
+      <a href="/dashboard/executive/" class="text-sm text-base-content/60 hover:text-base-content">← Panel ejecutivo</a>
+    </div>
+    <h1 class="text-xl font-semibold text-base-content">Visitas</h1>
+    <p class="text-sm text-base-content/60 mt-0.5">
+      Usuarios externos con acceso únicamente a las estadísticas. Ingresan en
+      <span class="text-base-content/70">/visitas/login/</span> con su correo; la primera vez crean su contraseña.
+    </p>
+
+    <!-- Alta -->
+    <div class="mt-4 card bg-base-100 shadow-sm border border-base-content/10">
+      <div class="card-body p-4 gap-3">
+        <p class="text-sm font-medium text-base-content">Nueva visita</p>
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-base-content/50">Nombre completo</label>
+            <input id="vm-name" type="text" class="input input-sm input-bordered bg-base-100 w-64" autocomplete="off">
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-base-content/50">Correo</label>
+            <input id="vm-email" type="email" class="input input-sm input-bordered bg-base-100 w-64"
+                   autocomplete="off" autocapitalize="none">
+          </div>
+          <button id="vm-add" class="btn-tinted btn-sm gap-1.5 text-success" onclick="createVisitor()">Agregar</button>
+        </div>
+        <div id="vm-add-error" class="alert alert-error text-sm py-2 hidden">
+          <span id="vm-add-error-text"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 rounded-lg border border-base-content/10 bg-base-100 overflow-x-auto">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Visita</th>
+            <th class="text-center">Ingresos</th>
+            <th class="text-center">Último ingreso</th>
+            <th class="text-center">Activo</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="vm-rows">
+          <tr><td colspan="5" class="text-center text-base-content/40 py-10">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p id="vm-empty" style="display:none" class="text-center text-base-content/40 py-10 text-sm">
+      Aún no hay visitas registradas.
+    </p>
+  </div>
+</div>
+
+<!-- Modal bitácora -->
+<dialog id="vm-logs-dialog" class="modal">
+  <div class="modal-box max-w-lg">
+    <h3 id="vm-logs-title" class="font-semibold text-base-content">Bitácora</h3>
+    <p id="vm-logs-sub" class="text-xs text-base-content/50 mb-3"></p>
+    <div class="max-h-80 overflow-y-auto">
+      <table class="table table-sm">
+        <thead><tr><th>Fecha y hora</th><th>IP</th></tr></thead>
+        <tbody id="vm-logs-rows"></tbody>
+      </table>
+    </div>
+    <div class="modal-action">
+      <form method="dialog"><button class="btn-tinted btn-sm text-base-content/60">Cerrar</button></form>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>cerrar</button></form>
+</dialog>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+var _visitors = [];
+
+function showDenied() {
+  document.getElementById('vm-main').style.display = 'none';
+  document.getElementById('vm-denied').style.display = '';
+}
+
+// fetch con JWT Bearer + refresh único en 401 (mismo patrón que permisos/estadísticas).
+function apiFetch(url, opts) {
+  opts = opts || {};
+  var access = localStorage.getItem('access');
+  opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + access });
+  return fetch(url, opts).then(function (res) {
+    if (res.status !== 401) return res;
+    var refresh = localStorage.getItem('refresh');
+    if (!refresh) return res;
+    return fetch('/api/auth/token/refresh/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh: refresh })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.access) return res;
+      localStorage.setItem('access', d.access);
+      opts.headers['Authorization'] = 'Bearer ' + d.access;
+      return fetch(url, opts);
+    });
+  });
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  return d.toLocaleDateString('es-BO', { day: '2-digit', month: 'short', year: 'numeric' })
+    + ' ' + d.toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' });
+}
+
+function load() {
+  apiFetch('/api/visits/')
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json();
+    })
+    .then(function (data) { _visitors = data || []; render(); })
+    .catch(function (e) { if (e !== 'forbidden') console.error(e); });
+}
+
+function render() {
+  var rows = document.getElementById('vm-rows');
+  var empty = document.getElementById('vm-empty');
+  if (!_visitors.length) {
+    rows.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  rows.innerHTML = _visitors.map(function (v) {
+    var pwd = v.has_password
+      ? ''
+      : ' · <span class="text-warning">sin contraseña</span>';
+    return '<tr>'
+      + '<td><div class="font-medium text-base-content">' + escapeHtml(v.full_name) + '</div>'
+      + '<div class="text-xs text-base-content/50">' + escapeHtml(v.email) + pwd + '</div></td>'
+      + '<td class="text-center">' + v.login_count + '</td>'
+      + '<td class="text-center text-sm text-base-content/70">' + fmtDate(v.last_login_at) + '</td>'
+      + '<td class="text-center"><label class="ios-toggle">'
+      + '<input type="checkbox" data-id="' + v.id + '" onchange="toggleActive(this)">'
+      + '<span class="ios-toggle-track"></span></label></td>'
+      + '<td class="text-right whitespace-nowrap">'
+      + '<button class="btn-ghost-tinted btn-xs text-info" onclick="viewLogs(' + v.id + ')">Bitácora</button>'
+      + '<button class="btn-ghost-tinted btn-xs text-error" onclick="deleteVisitor(' + v.id + ')">Eliminar</button>'
+      + '</td></tr>';
+  }).join('');
+  _visitors.forEach(function (v) {
+    var el = rows.querySelector('input[data-id="' + v.id + '"]');
+    if (el) el.checked = !!v.is_active;
+  });
+}
+
+function createVisitor() {
+  var name = document.getElementById('vm-name').value.trim();
+  var email = document.getElementById('vm-email').value.trim().toLowerCase();
+  var errBox = document.getElementById('vm-add-error');
+  var errTxt = document.getElementById('vm-add-error-text');
+  var btn = document.getElementById('vm-add');
+  errBox.classList.add('hidden');
+  if (!name || !email) { errTxt.textContent = 'Nombre y correo son requeridos.'; errBox.classList.remove('hidden'); return; }
+  btn.disabled = true;
+  apiFetch('/api/visits/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ full_name: name, email: email })
+  })
+    .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, d: d }; }); })
+    .then(function (r) {
+      if (!r.ok) { errTxt.textContent = r.d.error || 'No se pudo crear.'; errBox.classList.remove('hidden'); return; }
+      document.getElementById('vm-name').value = '';
+      document.getElementById('vm-email').value = '';
+      _visitors.push(r.d);
+      _visitors.sort(function (a, b) { return (a.full_name || '').localeCompare(b.full_name || ''); });
+      render();
+    })
+    .catch(function () { errTxt.textContent = 'Error de conexión.'; errBox.classList.remove('hidden'); })
+    .then(function () { btn.disabled = false; });
+}
+
+function toggleActive(el) {
+  var id = el.dataset.id;
+  var value = el.checked;
+  el.disabled = true;
+  apiFetch('/api/visits/' + id + '/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_active: value })
+  })
+    .then(function (res) {
+      if (!res.ok) { el.checked = !value; return; }
+      var v = _visitors.filter(function (x) { return String(x.id) === String(id); })[0];
+      if (v) v.is_active = value;
+    })
+    .catch(function () { el.checked = !value; })
+    .then(function () { el.disabled = false; });
+}
+
+function deleteVisitor(id) {
+  if (!confirm('¿Eliminar esta visita y su bitácora? Esta acción no se puede deshacer.')) return;
+  apiFetch('/api/visits/' + id + '/', { method: 'DELETE' })
+    .then(function (res) {
+      if (res.status !== 204 && !res.ok) return;
+      _visitors = _visitors.filter(function (x) { return String(x.id) !== String(id); });
+      render();
+    })
+    .catch(function (e) { console.error(e); });
+}
+
+function viewLogs(id) {
+  var v = _visitors.filter(function (x) { return String(x.id) === String(id); })[0];
+  document.getElementById('vm-logs-title').textContent = 'Bitácora — ' + (v ? v.full_name : '');
+  document.getElementById('vm-logs-sub').textContent = v ? v.email : '';
+  var body = document.getElementById('vm-logs-rows');
+  body.innerHTML = '<tr><td colspan="2" class="text-center text-base-content/40 py-4">Cargando…</td></tr>';
+  document.getElementById('vm-logs-dialog').showModal();
+  apiFetch('/api/visits/' + id + '/logs/')
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var logs = (data && data.logins) || [];
+      if (!logs.length) {
+        body.innerHTML = '<tr><td colspan="2" class="text-center text-base-content/40 py-4">Sin ingresos aún.</td></tr>';
+        return;
+      }
+      body.innerHTML = logs.map(function (l) {
+        return '<tr><td class="text-sm">' + fmtDate(l.logged_at) + '</td>'
+          + '<td class="text-sm text-base-content/60">' + escapeHtml(l.ip_address || '—') + '</td></tr>';
+      }).join('');
+    })
+    .catch(function () {
+      body.innerHTML = '<tr><td colspan="2" class="text-center text-error py-4">Error al cargar.</td></tr>';
+    });
+}
+
+// arranque
+(function () {
+  var access = localStorage.getItem('access');
+  if (!access) { showDenied(); return; }
+  apiFetch('/api/auth/me/')
+    .then(function (res) { return res.json(); })
+    .then(function (me) {
+      if (!me || !(me.is_superuser || me.can_manage_visits)) { showDenied(); return; }
+      document.getElementById('vm-main').style.display = '';
+      load();
+    })
+    .catch(function () { showDenied(); });
+})();
+</script>
+{% endblock %}

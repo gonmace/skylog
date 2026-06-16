@@ -300,7 +300,20 @@ class MeView(APIView):
         try:
             employee = request.user.employee
         except Employee.DoesNotExist:
-            return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
+            # Visitante externo (rol "visita"): solo accede a estadísticas globales.
+            from visits.models import Visitor
+            try:
+                visitor = request.user.visitor
+            except Visitor.DoesNotExist:
+                return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
+            return Response({
+                'is_visitor': True,
+                'full_name': visitor.full_name,
+                'email': visitor.email,
+                'is_executive': False,
+                'can_view_stats': False,
+                'is_superuser': False,
+            })
         data = EmployeeSerializer(employee).data
         data['agent_latest_version'] = settings.AGENT_LATEST_VERSION
         data['is_superuser'] = request.user.is_superuser

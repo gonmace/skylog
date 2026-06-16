@@ -83,6 +83,11 @@ class Employee(models.Model):
         verbose_name='Puede ver registro de asistencia',
         help_text='Habilita el acceso al registro de asistencia (las que ven los ejecutivos).',
     )
+    can_manage_visits = models.BooleanField(
+        default=False,
+        verbose_name='Puede gestionar visitas',
+        help_text='Habilita el acceso al módulo de Visitas para dar de alta usuarios externos con acceso solo a estadísticas.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     agent_last_seen = models.DateTimeField(null=True, blank=True)
     agent_version = models.CharField(max_length=20, blank=True, default='')

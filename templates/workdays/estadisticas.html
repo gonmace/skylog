@@ -444,7 +444,7 @@ function loadStats() {
   var url = buildApiUrl();
   if (!url) { return; }
   var access = localStorage.getItem('access');
-  if (!access) { window.location.href = '/login/?next=/estadisticas/'; return; }
+  if (!access) { window.location.href = '/visitas/login/'; return; }
 
   // Guardar la posición de scroll: el re-render de los charts cambia la altura del
   // documento y el navegador salta arriba. Se restaura tras el re-render.
@@ -462,14 +462,14 @@ function loadStats() {
     .then(function(res) {
       if (res.status === 401) {
         var refresh = localStorage.getItem('refresh');
-        if (!refresh) { window.location.href = '/login/?next=/estadisticas/'; return Promise.reject('no-refresh'); }
+        if (!refresh) { window.location.href = '/visitas/login/'; return Promise.reject('no-refresh'); }
         return fetch('/api/auth/token/refresh/', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refresh: refresh }),
         })
         .then(function(r2) { return r2.json(); })
         .then(function(d) {
-          if (!d.access) { window.location.href = '/login/?next=/estadisticas/'; return Promise.reject('refresh-fail'); }
+          if (!d.access) { window.location.href = '/visitas/login/'; return Promise.reject('refresh-fail'); }
           localStorage.setItem('access', d.access);
           return fetch(url, { headers: { 'Authorization': 'Bearer ' + d.access } });
         });
@@ -605,7 +605,7 @@ function _setupStickyOutline() {
 // ── Inicializar ──
 (function() {
   var access = localStorage.getItem('access');
-  if (!access) { if (_embed) return; window.location.href = '/login/?next=/estadisticas/'; return; }
+  if (!access) { if (_embed) return; window.location.href = '/visitas/login/'; return; }
 
   if (_embed) document.getElementById('es-backlink').style.display = 'none';
 
@@ -614,10 +614,34 @@ function _setupStickyOutline() {
     .then(function(me) {
       // Empleado normal: vista personal (mismo diseño, solo sus datos, sin filtros de rol/empleado).
       // Quien tenga can_view_stats accede a la vista global completa, como un ejecutivo.
-      if (!me.is_executive && !me.can_view_stats) {
+      if (!me.is_executive && !me.can_view_stats && !me.is_visitor) {
         _selfOnly = true;
         document.getElementById('es-grp-role').style.display = 'none';
         document.getElementById('es-grp-emp').style.display = 'none';
+      }
+      // Visitante externo: sin dashboard; el logo (en círculo blanco) reemplaza el botón PDF.
+      if (me.is_visitor) {
+        var _bl = document.getElementById('es-backlink');
+        if (_bl) _bl.style.display = 'none';
+        var _pdf = document.getElementById('es-pdf-btn');
+        if (_pdf) {
+          _pdf.style.display = 'none';
+          // Absoluto: el logo grande no debe estirar la altura de la cabecera.
+          _pdf.parentNode.classList.add('relative');
+          var _circle = document.createElement('div');
+          _circle.className = 'rounded-full bg-white shadow flex items-center justify-center shrink-0 no-print absolute';
+          _circle.style.width = '72px';
+          _circle.style.height = '72px';
+          _circle.style.right = '28px';
+          _circle.style.top = '50%';
+          _circle.style.transform = 'translateY(-50%)';
+          var _img = document.createElement('img');
+          _img.src = '{% static 'img/logo_RL_EMBOL.png' %}';
+          _img.alt = 'RedLine GS — EMBOL';
+          _img.className = 'w-12 h-12 object-contain';
+          _circle.appendChild(_img);
+          _pdf.parentNode.appendChild(_circle);
+        }
       }
       document.getElementById('es-main').style.display = '';
       _setupStickyOutline();
@@ -638,7 +662,7 @@ function _setupStickyOutline() {
 
       loadStats();
     })
-    .catch(function() { if (!_embed) window.location.href = '/login/?next=/estadisticas/'; });
+    .catch(function() { if (!_embed) window.location.href = '/visitas/login/'; });
 })();
 </script>
 {% endblock %}

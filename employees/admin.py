@@ -23,7 +23,7 @@ class EmployeeAdmin(admin.ModelAdmin):
     fieldsets = [
         ('Información', {'fields': ['user', 'nextcloud_username', 'full_name', 'item_number', 'cargo', 'haber_basico', 'ciudad', 'hora_entrada', 'is_active', 'is_executive', 'solo_movil', 'mobile_type', 'mobile_device_id', 'created_at']}),
         ('Agente', {'fields': ['agent_version', 'agent_last_seen', 'capture_interval_minutes', 'screenshots_enabled'], 'description': 'Intervalo vacío = usa el global.'}),
-        ('Permisos granulares', {'fields': ['can_message_leads', 'can_view_stats', 'can_edit_tags', 'can_view_report'], 'description': 'Capacidades habilitadas por el superuser sin convertir al usuario en ejecutivo.'}),
+        ('Permisos granulares', {'fields': ['can_message_leads', 'can_view_stats', 'can_edit_tags', 'can_view_report', 'can_manage_visits'], 'description': 'Capacidades habilitadas por el superuser sin convertir al usuario en ejecutivo.'}),
         ('Token para agente Windows', {'fields': ['agent_token'], 'classes': ['collapse']}),
     ]
 

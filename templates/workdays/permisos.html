@@ -48,10 +48,11 @@
             <th class="text-center">Ver estadísticas</th>
             <th class="text-center">Editar etiquetas</th>
             <th class="text-center">Registro asistencia</th>
+            <th class="text-center">Gestionar visitas</th>
           </tr>
         </thead>
         <tbody id="pm-rows">
-          <tr><td colspan="5" class="text-center text-base-content/40 py-10">Cargando…</td></tr>
+          <tr><td colspan="6" class="text-center text-base-content/40 py-10">Cargando…</td></tr>
         </tbody>
       </table>
     </div>
@@ -149,11 +150,12 @@ function render() {
       + toggleCell(e.id, 'can_view_stats')
       + toggleCell(e.id, 'can_edit_tags')
       + toggleCell(e.id, 'can_view_report')
+      + toggleCell(e.id, 'can_manage_visits')
       + '</tr>';
   }).join('');
   // marcar el estado actual de cada toggle
   list.forEach(function (e) {
-    ['can_message_leads', 'can_view_stats', 'can_edit_tags', 'can_view_report'].forEach(function (f) {
+    ['can_message_leads', 'can_view_stats', 'can_edit_tags', 'can_view_report', 'can_manage_visits'].forEach(function (f) {
       var el = rows.querySelector('input[data-id="' + e.id + '"][data-field="' + f + '"]');
       if (el) el.checked = !!e[f];
     });
