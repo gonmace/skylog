@@ -799,7 +799,7 @@
       const notes  = data.notes  || {};
       const leaves = data.leaves || {};
 
-      const LEAVE_LABELS = { vacacion: 'Vacación', licencia: 'Licencia', permiso: 'Permiso' };
+      const LEAVE_LABELS = { vacacion: 'Vacación', licencia: 'Licencia', permiso: 'Permiso', otro: 'Otro' };
 
       for (let d = 1; d <= daysInMonth; d++) {
         const hrs     = data.days[String(d)] || 0;
@@ -1010,7 +1010,7 @@
         const autoClosed = new Set(calData.auto_closed_days || []);
         const notes  = calData.notes  || {};
         const leaves = calData.leaves || {};
-        const LEAVE_LABELS = { vacacion: 'Vacación', licencia: 'Licencia', permiso: 'Permiso' };
+        const LEAVE_LABELS = { vacacion: 'Vacación', licencia: 'Licencia', permiso: 'Permiso', otro: 'Otro' };
 
         for (let d = 1; d <= daysInMonth; d++) {
           const hrs = calData.days[String(d)] || 0;

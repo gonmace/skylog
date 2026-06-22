@@ -104,6 +104,11 @@
   .cal-day { border-radius:9px;min-height:42px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px; }
   .cal-day-num { font-size:0.78rem;font-weight:500;color:var(--cp-text-lo);line-height:1; }
   .cal-day-hrs { font-size:0.58rem;font-weight:700;line-height:1;color:var(--cp-green);letter-spacing:0.01em; }
+  .cal-day-time { font-size:0.72rem;font-weight:700;line-height:1.05;color:var(--cp-text-hi);letter-spacing:-0.01em; }
+  #emp-cal-grid { gap:5px; }
+  #emp-cal-grid .cal-day { min-height:74px;gap:3px; }
+  #emp-cal-grid .cal-day-num { font-size:0.92rem; }
+  #emp-cal-grid .cal-day-hrs { font-size:0.66rem; }
   .cal-day.empty .cal-day-num { opacity:0.2; }
   .cal-day.has-work { background:color-mix(in srgb,var(--cp-green) 10%,transparent); }
   .cal-day.has-work .cal-day-num { color:var(--cp-text-hi); }
@@ -118,15 +123,17 @@
   .cal-day.leave-vacacion { background:color-mix(in srgb,var(--cp-blue) 18%,transparent); }
   .cal-day.leave-licencia { background:color-mix(in srgb,var(--cp-orange) 18%,transparent); }
   .cal-day.leave-permiso  { background:color-mix(in srgb,#a78bfa 18%,transparent); }
+  .cal-day.leave-otro     { background:color-mix(in srgb,var(--cp-text-dim) 18%,transparent); }
   .cal-day.leave-vacacion .cal-day-num { color:var(--cp-blue);font-weight:700; }
   .cal-day.leave-licencia .cal-day-num { color:var(--cp-orange);font-weight:700; }
   .cal-day.leave-permiso  .cal-day-num { color:#a78bfa;font-weight:700; }
+  .cal-day.leave-otro     .cal-day-num { color:var(--cp-text-dim);font-weight:700; }
   .cal-day.has-note { position:relative; }
   .cal-day.has-note::after { content:'';position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;background:var(--cp-yellow); }
   .cal-day.has-note::before { content:attr(data-note);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(20,20,35,0.97);color:rgba(255,255,255,0.90);font-size:0.7rem;font-weight:500;white-space:nowrap;padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);pointer-events:none;opacity:0;transition:opacity .15s;z-index:50; }
   .cal-day.has-note:hover::before { opacity:1; }
   .cal-day.cal-interactive { cursor:pointer; }
-  .cal-day.cal-interactive:hover:not(.leave-vacacion):not(.leave-licencia):not(.leave-permiso) { background:color-mix(in srgb,white 6%,transparent); }
+  .cal-day.cal-interactive:hover:not(.leave-vacacion):not(.leave-licencia):not(.leave-permiso):not(.leave-otro) { background:color-mix(in srgb,white 6%,transparent); }
   .cal-day.cal-sel-start { box-shadow:0 0 0 2px var(--cp-blue); }
   .cal-day.cal-sel-range { background:color-mix(in srgb,var(--cp-blue) 10%,transparent); }
   #exec-global-cal .cal-day.cal-interactive { cursor:pointer; }
@@ -444,7 +451,7 @@
 
 <!-- Executive: calendario de empleado -->
 <dialog id="modal-emp-calendar" class="modal modal-ios">
-  <div class="modal-box cp-modal-box" style="max-width:520px;width:100%">
+  <div class="modal-box cp-modal-box" style="max-width:680px;width:100%">
     <div class="flex items-center justify-between px-6 pt-5 pb-3">
       <div>
         <p id="emp-cal-name" class="text-base font-bold text-base-content/90"></p>
@@ -499,16 +506,36 @@
   <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
-<!-- Executive: ausencia de empleado -->
+<!-- Executive: horario / ausencia de empleado -->
 <dialog id="modal-leave" class="modal modal-ios">
   <div class="modal-box cp-modal-box" style="max-width:380px">
     <div class="cp-modal-body" style="padding-bottom:12px">
       <p id="leave-modal-title" class="text-base font-bold text-base-content/90 mb-4"></p>
+
+      <!-- Horario de la jornada -->
+      <div class="mb-4">
+        <p class="text-xs font-semibold tracking-wide uppercase text-base-content/30 mb-2">Horario</p>
+        <p id="wd-empty" class="text-sm text-base-content/50" style="display:none">Sin jornada registrada.</p>
+        <div id="wd-fields" class="flex gap-2 items-end" style="display:none">
+          <div class="flex-1">
+            <label class="text-xs font-semibold tracking-wide uppercase text-base-content/30 block mb-1">Ingreso</label>
+            <input id="wd-start" type="time" class="input input-bordered w-full text-sm" style="color-scheme:dark">
+          </div>
+          <div class="flex-1">
+            <label class="text-xs font-semibold tracking-wide uppercase text-base-content/30 block mb-1">Salida</label>
+            <input id="wd-end" type="time" class="input input-bordered w-full text-sm" style="color-scheme:dark">
+          </div>
+          <button id="wd-save" class="btn-tinted btn-sm text-info" style="display:none">Guardar horario</button>
+        </div>
+      </div>
+
+      <p class="text-xs font-semibold tracking-wide uppercase text-base-content/30 mb-2">Ausencia</p>
       <div class="flex flex-col gap-2.5">
         <select id="leave-type" class="select select-bordered w-full text-sm" style="color-scheme:dark">
           <option value="vacacion">Vacación</option>
           <option value="licencia">Licencia</option>
           <option value="permiso">Permiso</option>
+          <option value="otro">Otro</option>
         </select>
         <div class="flex gap-2 items-center">
           <div class="flex-1">

@@ -780,7 +780,7 @@
     const EXEC_MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
                               'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
     const EXEC_DAY_HDR = ['Lu','Ma','Mi','Ju','Vi','Sa','Do'];
-    const LEAVE_LABELS = { vacacion: 'Vacación', licencia: 'Licencia', permiso: 'Permiso' };
+    const LEAVE_LABELS = { vacacion: 'Vacación', licencia: 'Licencia', permiso: 'Permiso', otro: 'Otro' };
 
     function toIso(year, month, day) {
       return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
@@ -795,6 +795,7 @@
       const autoClosed  = new Set(data.auto_closed_days || []);
       const notes  = data.notes  || {};
       const leaves = data.leaves || {};
+      const times  = data.times  || {};
 
       let html = EXEC_DAY_HDR.map(d => `<div class="cal-day-header">${d}</div>`).join('');
       for (let i = 0; i < startOffset; i++) html += `<div class="cal-day empty"></div>`;
@@ -821,14 +822,20 @@
           ? `<span class="cal-day-hrs" style="${isClosed?'color:var(--cp-red)':''}">${hrs%1===0?hrs:hrs.toFixed(1)}h</span>`
           : (leave ? `<span class="cal-day-hrs" style="font-size:0.52rem;letter-spacing:0">${LEAVE_LABELS[leave.type]}</span>` : '');
 
+        const tm = times[String(d)];
+        const tmLabel = tm ? `Ingreso ${tm.start}${tm.end ? ` · Salida ${tm.end}` : ''}` : '';
+        const timeLabel = (!leave && tm && tm.start)
+          ? `<span class="cal-day-time">${tm.start}${tm.end ? `–${tm.end}` : ''}</span>`
+          : '';
         let tip = '';
         if (leave && leave.note) tip = ` title="${LEAVE_LABELS[leave.type]}: ${leave.note}"`;
         else if (leave) tip = ` title="${LEAVE_LABELS[leave.type]}"`;
-        else if (isClosed) tip = ' title="Cerrada automáticamente a las 17:00"';
+        else if (isClosed) tip = ` title="${tmLabel ? tmLabel + ' — ' : ''}Cerrada automáticamente a las 17:00"`;
         else if (note) tip = ` title="${note.text}"`;
+        else if (tmLabel) tip = ` title="${tmLabel}"`;
 
         html += `<div class="${cls}" data-day="${d}"${tip}>
-          <span class="cal-day-num">${d}</span>${hrsLabel}
+          <span class="cal-day-num">${d}</span>${hrsLabel}${timeLabel}
         </div>`;
       }
       return html;
@@ -939,7 +946,37 @@
     const leaveDelete = document.getElementById('leave-delete');
     const leaveCancel = document.getElementById('leave-cancel');
     const leaveSave   = document.getElementById('leave-save');
+    const wdFields    = document.getElementById('wd-fields');
+    const wdEmpty     = document.getElementById('wd-empty');
+    const wdStart     = document.getElementById('wd-start');
+    const wdEnd       = document.getElementById('wd-end');
+    const wdSave      = document.getElementById('wd-save');
     let activeLeaveId = null;
+    let activeCalDate = null;
+
+    // La nota es obligatoria cuando el tipo es "Otro"
+    leaveType.addEventListener('change', () => {
+      leaveNote.placeholder = leaveType.value === 'otro' ? 'Nota (obligatoria)' : 'Nota opcional';
+    });
+
+    // Solo el superuser puede editar el horario de la jornada
+    wdSave.addEventListener('click', async () => {
+      if (!activeCalDate) return;
+      const start = wdStart.value, end = wdEnd.value;
+      if (!start || !end) return;
+      const resp = await fetch(`/api/employees/${empCalId}/workday-times/`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+        body: JSON.stringify({ date: activeCalDate, start, end }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert(err.error || 'No se pudo guardar el horario');
+        return;
+      }
+      modalLeave.close();
+      loadEmpCalendar(empCalId, empCalYear, empCalMonth);
+    });
 
     leaveCancel.addEventListener('click', () => modalLeave.close());
     leaveDelete.addEventListener('click', async () => {
@@ -956,6 +993,7 @@
       const end   = leaveEnd.value || start;
       const note  = leaveNote.value.trim();
       if (!start) { leaveStart.focus(); return; }
+      if (type === 'otro' && !note) { leaveNote.focus(); return; }
       await fetch(`/api/employees/${empCalId}/leaves/`, {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
@@ -1017,8 +1055,26 @@
       leaveStart.value = dateStr;
       leaveEnd.value   = dateStr;
       leaveNote.value  = leave ? (leave.note || '') : '';
+      leaveNote.placeholder = leaveType.value === 'otro' ? 'Nota (obligatoria)' : 'Nota opcional';
       activeLeaveId    = existingLeaveId;
       leaveDelete.style.display = existingLeaveId ? 'block' : 'none';
+
+      // Sección Horario: muestra ingreso/salida; editable solo para superuser
+      activeCalDate = dateStr;
+      const tm = empCalData && empCalData.times ? empCalData.times[String(d)] : null;
+      const isSuper = !!(profile && profile.is_superuser);
+      if (tm) {
+        wdStart.value = tm.start || '';
+        wdEnd.value   = tm.end || '';
+        wdFields.style.display = 'flex';
+        wdEmpty.style.display  = 'none';
+        wdStart.disabled = wdEnd.disabled = !isSuper;
+        wdSave.style.display = isSuper ? 'inline-flex' : 'none';
+      } else {
+        wdFields.style.display = 'none';
+        wdEmpty.style.display  = 'block';
+      }
+
       modalLeave.showModal();
     });
 

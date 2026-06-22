@@ -285,14 +285,16 @@ class CalendarNote(models.Model):
 
 
 class EmployeeLeave(models.Model):
-    """Ausencia registrada para un empleado (vacación, licencia, permiso)."""
+    """Ausencia registrada para un empleado (vacación, licencia, permiso, otro)."""
     TYPE_VACACION = 'vacacion'
     TYPE_LICENCIA = 'licencia'
     TYPE_PERMISO  = 'permiso'
+    TYPE_OTRO     = 'otro'
     TYPE_CHOICES  = [
         (TYPE_VACACION, 'Vacación'),
         (TYPE_LICENCIA, 'Licencia'),
         (TYPE_PERMISO,  'Permiso'),
+        (TYPE_OTRO,     'Otro'),
     ]
     employee   = models.ForeignKey(
         'employees.Employee', on_delete=models.CASCADE, related_name='leaves',

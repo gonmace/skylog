@@ -1364,15 +1364,23 @@ class EmployeeMonthlyView(APIView):
             status__in=[Workday.STATUS_COMPLETED, Workday.STATUS_INCOMPLETE],
             start_time__gte=first_dt,
             start_time__lte=last_dt,
-        ).values('start_time', 'duration_minutes', 'auto_closed')
+        ).values('start_time', 'end_time', 'duration_minutes', 'auto_closed')
 
         days: dict = {}
         auto_closed_days: set = set()
+        times: dict = {}  # day -> {'start': 'HH:MM', 'end': 'HH:MM' | None}
         for w in completed:
             day = timezone.localtime(w['start_time']).day
             days[day] = days.get(day, 0) + (w['duration_minutes'] or 0) / 60
             if w['auto_closed']:
                 auto_closed_days.add(day)
+            s = timezone.localtime(w['start_time']).strftime('%H:%M')
+            e = timezone.localtime(w['end_time']).strftime('%H:%M') if w['end_time'] else None
+            cur = times.setdefault(day, {'start': s, 'end': e})
+            if s < cur['start']:
+                cur['start'] = s  # ingreso = primera jornada del día
+            if e and (not cur['end'] or e > cur['end']):
+                cur['end'] = e  # salida = última jornada del día
 
         active_day = None
         try:
@@ -1410,6 +1418,7 @@ class EmployeeMonthlyView(APIView):
             'active_day': active_day,
             'auto_closed_days': list(auto_closed_days),
             'days': {str(k): round(v, 2) for k, v in days.items()},
+            'times': {str(k): v for k, v in times.items()},
             'notes': notes,
             'leaves': leave_days,
         })
@@ -1607,6 +1616,12 @@ class EmployeeLeavesView(APIView):
         if not start_str or not leave_type:
             return Response({'error': 'start_date y leave_type son requeridos'}, status=400)
 
+        if leave_type not in dict(EmployeeLeave.TYPE_CHOICES):
+            return Response({'error': 'Tipo de ausencia inválido'}, status=400)
+
+        if leave_type == EmployeeLeave.TYPE_OTRO and not note:
+            return Response({'error': 'La nota es obligatoria para el tipo "Otro"'}, status=400)
+
         try:
             import datetime
             start = datetime.date.fromisoformat(start_str)
@@ -1647,6 +1662,63 @@ class EmployeeLeaveDetailView(APIView):
         except EmployeeLeave.DoesNotExist:
             return Response({'error': 'Ausencia no encontrada'}, status=404)
         leave.delete()
+        return Response({'ok': True})
+
+
+class EmployeeWorkdayTimesView(APIView):
+    """Edita la hora de ingreso/salida de un día de un empleado. Solo superuser de Django."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, employee_id):
+        if not request.user.is_superuser:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        try:
+            emp = Employee.objects.get(id=employee_id, is_active=True, is_executive=False)
+        except Employee.DoesNotExist:
+            return Response({'error': 'Empleado no encontrado'}, status=404)
+
+        date_str  = request.data.get('date', '')
+        start_str = request.data.get('start', '')
+        end_str   = request.data.get('end', '')
+        if not date_str or not start_str or not end_str:
+            return Response({'error': 'date, start y end son requeridos'}, status=400)
+
+        try:
+            target = _date.fromisoformat(date_str)
+            sh, sm = (int(x) for x in start_str.split(':'))
+            eh, em = (int(x) for x in end_str.split(':'))
+            new_start = timezone.make_aware(_datetime.combine(target, _time(sh, sm)))
+            new_end   = timezone.make_aware(_datetime.combine(target, _time(eh, em)))
+        except (ValueError, TypeError):
+            return Response({'error': 'Formato de fecha/hora inválido'}, status=400)
+
+        if new_end <= new_start:
+            return Response({'error': 'La hora de salida debe ser posterior a la de ingreso'}, status=400)
+
+        day_start = timezone.make_aware(_datetime.combine(target, _time(0, 0)))
+        day_end   = timezone.make_aware(_datetime.combine(target, _time(23, 59, 59)))
+        workdays = list(Workday.objects.filter(
+            employee=emp,
+            status__in=[Workday.STATUS_COMPLETED, Workday.STATUS_INCOMPLETE],
+            start_time__gte=day_start,
+            start_time__lte=day_end,
+        ).order_by('start_time'))
+
+        if not workdays:
+            return Response({'error': 'No hay jornadas registradas ese día'}, status=404)
+
+        first = workdays[0]
+        last  = workdays[-1]
+        first.start_time = new_start
+        last.end_time    = new_end
+        # Recalcular duración de las filas modificadas (first y last; coinciden si hay una sola)
+        for wd in {first, last}:
+            if wd.end_time and wd.start_time:
+                wd.duration_minutes = int((wd.end_time - wd.start_time).total_seconds() // 60)
+                wd.status = Workday.STATUS_COMPLETED
+            wd.save(update_fields=['start_time', 'end_time', 'duration_minutes', 'status'])
+
         return Response({'ok': True})
 
 
