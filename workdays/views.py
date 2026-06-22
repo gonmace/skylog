@@ -2849,8 +2849,13 @@ def _cert_fill_employee_sheet(ws, item, emp, dates, wd_lookup, leaves_lookup, no
     ws.cell(row=last + 3, column=3, value=f'=SUM(G{first}:G{last})')
 
 
-def _cert_fill_pl_sheet(ws, employees, dates, period_value):
+# Ausencias que se cuentan como día trabajado en el certificado (planilla de personal)
+CERT_WORKED_LEAVES = {EmployeeLeave.TYPE_PERMISO, EmployeeLeave.TYPE_VACACION}
+
+
+def _cert_fill_pl_sheet(ws, employees, dates, period_value, leave_types_lookup=None):
     """Rellena la hoja PL (certificado consolidado) de la plantilla."""
+    leave_types_lookup = leave_types_lookup or {}
     n_emp = len(employees)
     ndays = len(dates)
     first = CERT_PL_FIRST_ROW
@@ -2863,7 +2868,7 @@ def _cert_fill_pl_sheet(ws, employees, dates, period_value):
         for d in range(1, CERT_MAX_DAYS + 1):
             _cert_day_cell(ws, row, d, dates[d - 1].day if d <= ndays else None)
 
-    def _fill_person_row(r, item, emp, pu=None):
+    def _fill_person_row(r, item, emp, pu=None, mode='salary'):
         ws.cell(row=r, column=1, value=item)
         ws.cell(row=r, column=2, value=emp.full_name)
         ws.cell(row=r, column=3, value=emp.cargo or '')
@@ -2875,7 +2880,14 @@ def _cert_fill_pl_sheet(ws, employees, dates, period_value):
         for d in range(1, CERT_MAX_DAYS + 1):
             v = None
             if d <= ndays:
-                v = f'=+IF(\'{item}\'!F{CERT_E_FIRST_ROW + d - 1}>1,"SI","NO")'
+                lvs = leave_types_lookup.get((emp.id, dates[d - 1]), set())
+                formula = f'=+IF(\'{item}\'!F{CERT_E_FIRST_ROW + d - 1}>1,"SI","NO")'
+                if mode == 'catering':
+                    # Alimentación: cualquier ausencia ese día excluye el día
+                    v = 'NO' if lvs else formula
+                else:
+                    # Planilla de personal: permiso/vacación cuentan como día trabajado
+                    v = 'SI' if (lvs & CERT_WORKED_LEAVES) else formula
             _cert_day_cell(ws, r, d, v)
         ws.cell(row=r, column=37, value=f'=+COUNTIF(F{r}:AJ{r},"SI")')
 
@@ -2923,7 +2935,7 @@ def _cert_fill_pl_sheet(ws, employees, dates, period_value):
         _fill_day_header(days_r)
         for i, (item, emp) in enumerate(city_employees):
             r = first_emp + i
-            _fill_person_row(r, item, emp, pu=25)
+            _fill_person_row(r, item, emp, pu=25, mode='catering')
             ws.cell(row=r, column=38, value=f'=+AK{r}*E{r}')
             ws.cell(row=r, column=39, value=f'=+AL{r}*$AM${title_r}')
         sub_r = first_emp + count
@@ -3020,7 +3032,8 @@ class CertificadoExportView(APIView):
             wd_lookup[(wd.employee_id, ls.date())] = wd
 
         leave_labels = dict(EmployeeLeave.TYPE_CHOICES)
-        leaves_lookup = {}
+        leaves_lookup = {}        # (emp_id, date) -> [texto a mostrar en obs]
+        leave_types_lookup = {}   # (emp_id, date) -> {tipos de ausencia}
         for lv in EmployeeLeave.objects.filter(
             employee__in=employees,
             start_date__lte=to_date, end_date__gte=from_date,
@@ -3028,10 +3041,15 @@ class CertificadoExportView(APIView):
             d = lv.start_date
             while d <= lv.end_date:
                 if from_date <= d <= to_date:
-                    txt = leave_labels.get(lv.leave_type, lv.leave_type)
-                    if lv.note:
-                        txt += f' ({lv.note})'
-                    leaves_lookup.setdefault((lv.employee_id, d), []).append(txt)
+                    if lv.leave_type == EmployeeLeave.TYPE_OTRO:
+                        txt = lv.note or ''  # "Otro": solo la nota, sin la palabra "Otro"
+                    else:
+                        txt = leave_labels.get(lv.leave_type, lv.leave_type)
+                        if lv.note:
+                            txt += f' ({lv.note})'
+                    if txt:
+                        leaves_lookup.setdefault((lv.employee_id, d), []).append(txt)
+                    leave_types_lookup.setdefault((lv.employee_id, d), set()).add(lv.leave_type)
                 d += timedelta(days=1)
 
         note_labels = dict(CalendarNote.TYPE_CHOICES)
@@ -3052,7 +3070,7 @@ class CertificadoExportView(APIView):
             new_ws = wb.copy_worksheet(wb['1'])
             new_ws.title = str(s)
 
-        _cert_fill_pl_sheet(wb['PL'], employees, dates, period_value)
+        _cert_fill_pl_sheet(wb['PL'], employees, dates, period_value, leave_types_lookup)
         for idx, emp in enumerate(employees, start=1):
             _cert_fill_employee_sheet(wb[str(idx)], idx, emp, dates,
                                       wd_lookup, leaves_lookup, notes_lookup)

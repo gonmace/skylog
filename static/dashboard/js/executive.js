@@ -90,7 +90,7 @@
     document.getElementById('pin-error').textContent = '';
     showView('view-pin');
 
-    document.querySelectorAll('.pin-key[data-digit]').forEach(btn => {
+    document.querySelectorAll('#view-pin [data-digit]').forEach(btn => {
       btn.addEventListener('click', () => _pinPress(btn.dataset.digit));
     });
     document.getElementById('pin-del').addEventListener('click', _pinBackspace);
