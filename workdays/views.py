@@ -1706,7 +1706,16 @@ class EmployeeWorkdayTimesView(APIView):
         ).order_by('start_time'))
 
         if not workdays:
-            return Response({'error': 'No hay jornadas registradas ese día'}, status=404)
+            # No se inició jornada ese día: el superuser la crea como si hubiese fichado.
+            duration = int((new_end - new_start).total_seconds() // 60)
+            Workday.objects.create(
+                employee=emp,
+                start_time=new_start,
+                end_time=new_end,
+                duration_minutes=duration,
+                status=Workday.STATUS_COMPLETED,
+            )
+            return Response({'ok': True, 'created': True})
 
         first = workdays[0]
         last  = workdays[-1]

@@ -1070,6 +1070,13 @@
         wdEmpty.style.display  = 'none';
         wdStart.disabled = wdEnd.disabled = !isSuper;
         wdSave.style.display = isSuper ? 'inline-flex' : 'none';
+      } else if (isSuper) {
+        // Sin jornada: el superuser puede crear una colocando ingreso/salida.
+        wdStart.value = wdEnd.value = '';
+        wdStart.disabled = wdEnd.disabled = false;
+        wdFields.style.display = 'flex';
+        wdEmpty.style.display  = 'none';
+        wdSave.style.display = 'inline-flex';
       } else {
         wdFields.style.display = 'none';
         wdEmpty.style.display  = 'block';
