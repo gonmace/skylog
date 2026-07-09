@@ -284,6 +284,14 @@
 
     setAvatar(document.getElementById('profile-avatar'), profileData.full_name || profileData.nextcloud_username);
 
+    // Barra "Estás viendo como…" cuando un superuser impersona a este empleado
+    if (profileData.impersonating) {
+      const impName = document.getElementById('imp-name');
+      if (impName) impName.textContent = profileData.full_name || profileData.nextcloud_username || '';
+      const impBar = document.getElementById('impersonate-bar');
+      if (impBar) impBar.style.display = '';
+    }
+
     // Botones superiores habilitados por permisos granulares.
     const _showIf = (id, cond) => { const el = document.getElementById(id); if (el && cond) el.style.display = ''; };
     _showIf('emp-link-report',   profileData.is_superuser || profileData.can_view_report);

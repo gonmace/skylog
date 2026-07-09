@@ -317,6 +317,9 @@ class MeView(APIView):
         data['agent_latest_version'] = settings.AGENT_LATEST_VERSION
         data['agent_min_version'] = settings.AGENT_MIN_VERSION
         data['is_superuser'] = request.user.is_superuser
+        # Superuser impersonando a este empleado (marcado en la sesión por ImpersonateView)
+        imp_id = request.session.get('impersonator_id')
+        data['impersonating'] = bool(imp_id and imp_id != request.user.id)
         return Response(data)
 
 
@@ -453,12 +456,12 @@ def _find_employee(param):
     return qs.filter(nextcloud_username=param).first()
 
 
-def _issue_jwt_login(request, user):
+def _issue_jwt_login(request, user, redirect_url=None):
     """Emite JWT para `user`, lo setea como cookies y redirige al dashboard."""
     refresh = RefreshToken.for_user(user)
     access  = str(refresh.access_token)
     ref     = str(refresh)
-    return_url = settings.NEXTCLOUD_RETURN_URL or request.build_absolute_uri('/dashboard/')
+    return_url = redirect_url or settings.NEXTCLOUD_RETURN_URL or request.build_absolute_uri('/dashboard/')
     response = render(request, 'authentication/oauth2_success.html', {
         'access': access,
         'refresh': ref,
@@ -537,14 +540,27 @@ class ImpersonateView(View):
 
     - /impersonar/                        → lista de empleados para elegir
     - /impersonar/?employee=<id|username> → emite JWT como ese empleado
+    - /impersonar/?volver=1               → restaura la cuenta del superuser original
 
-    Nota: al impersonar se reemplazan las cookies de sesión JWT; para volver a
-    tu propia cuenta hay que iniciar sesión de nuevo.
+    Al impersonar, la identidad del superuser queda guardada en la sesión de
+    Django (server-side, independiente de las cookies JWT), así el dashboard
+    muestra la barra "Estás viendo como…" con el botón Volver.
     """
 
     def get(self, request):
         from django.http import Http404, HttpResponseNotFound
-        if _superuser_from_request(request) is None:
+
+        # Volver a la cuenta original: se valida contra la sesión (el JWT actual
+        # es el del empleado impersonado, no el del superuser).
+        if request.GET.get('volver'):
+            orig_id = request.session.pop('impersonator_id', None)
+            orig = User.objects.filter(pk=orig_id, is_superuser=True, is_active=True).first() if orig_id else None
+            if orig is None:
+                raise Http404
+            return _issue_jwt_login(request, orig, redirect_url=request.build_absolute_uri('/dashboard/'))
+
+        superuser = _superuser_from_request(request)
+        if superuser is None:
             raise Http404
 
         emp_param = request.GET.get('employee')
@@ -552,6 +568,8 @@ class ImpersonateView(View):
             employee = _find_employee(emp_param)
             if employee is None or employee.user_id is None:
                 return HttpResponseNotFound(f'Empleado "{emp_param}" no encontrado o sin usuario asociado.')
+            if employee.user_id != superuser.id:
+                request.session['impersonator_id'] = superuser.id
             return _issue_jwt_login(request, employee.user)
 
         return _render_employee_picker(
