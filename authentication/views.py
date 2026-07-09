@@ -371,6 +371,9 @@ class AgentActivateView(APIView):
         if not act.is_valid():
             return Response({'error': 'Token expirado o ya utilizado'}, status=status.HTTP_410_GONE)
 
+        if act.employee.is_executive:
+            return Response({'error': 'Los ejecutivos no usan el agente de escritorio'}, status=403)
+
         employee = act.employee
         refresh = RefreshToken.for_user(employee.user)
 
@@ -400,6 +403,9 @@ class AgentPairTokenView(APIView):
             return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
         if not employee.is_active or not employee.skylog_access:
             return Response({'error': 'Sin acceso a Skylog'}, status=403)
+        if employee.is_executive:
+            # El WS del agente rechaza ejecutivos; emparejarlo sería un agente zombi.
+            return Response({'error': 'Los ejecutivos no usan el agente de escritorio'}, status=403)
 
         activation_token = AgentActivationToken.create_for_employee(employee)
         return Response({
