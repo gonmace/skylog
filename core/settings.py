@@ -275,6 +275,10 @@ _av = {}
 exec(open(os.path.join(BASE_DIR, 'agent', 'version.py')).read(), _av)
 AGENT_LATEST_VERSION = _av['VERSION']
 del _av
+# Versión mínima del agente exigida para iniciar jornada (se valida en el
+# servidor y en el dashboard). Definir AGENT_MIN_VERSION='' en .env si se
+# necesita relajar temporalmente durante un rollout.
+AGENT_MIN_VERSION = config('AGENT_MIN_VERSION', default='2.0.0')
 
 # Almacenamiento de capturas en Nextcloud (opcional).
 # Si NEXTCLOUD_SCREENSHOTS_USER está definido, las capturas se suben vía WebDAV

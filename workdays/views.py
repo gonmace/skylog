@@ -20,6 +20,31 @@ from .models import Workday, DailyReport, CaptureConfig, InactivityPeriod, Execu
 logger = logging.getLogger(__name__)
 
 
+def _version_lt(a, b):
+    """True si la versión a es menor que b (comparación numérica por segmentos)."""
+    def parts(v):
+        return [int(p) for p in str(v).split('.') if p.isdigit()]
+    pa, pb = parts(a), parts(b)
+    length = max(len(pa), len(pb))
+    pa += [0] * (length - len(pa))
+    pb += [0] * (length - len(pb))
+    return pa < pb
+
+
+def _agent_version_error(employee):
+    """Valida en el servidor la versión mínima del agente (AGENT_MIN_VERSION).
+    Devuelve un mensaje de error o None si puede fichar. Los solo-móvil no usan agente."""
+    min_ver = getattr(settings, 'AGENT_MIN_VERSION', '')
+    if not min_ver or employee.solo_movil:
+        return None
+    installed = (employee.agent_version or '').strip()
+    if not installed:
+        return 'Debes instalar el agente RedLine GS para iniciar tu jornada.'
+    if _version_lt(installed, min_ver):
+        return f'Debes actualizar el agente a la versión {settings.AGENT_LATEST_VERSION} para iniciar tu jornada.'
+    return None
+
+
 class WorkdayStartView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -28,6 +53,10 @@ class WorkdayStartView(APIView):
             employee = request.user.employee
         except Exception:
             return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
+
+        agent_error = _agent_version_error(employee)
+        if agent_error:
+            return Response({'error': agent_error}, status=status.HTTP_400_BAD_REQUEST)
 
         if Workday.objects.filter(employee=employee, status=Workday.STATUS_IN_PROGRESS).exists():
             return Response(
@@ -1113,6 +1142,81 @@ class AdminPermissionsUpdateView(APIView):
         return Response({'id': emp.id, field: value})
 
 
+class AdminUsersListView(APIView):
+    """Superuser: lista de todos los empleados (activos e inactivos) para la
+    pestaña Usuarios de Cuentas — cargo, rol y estado."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_superuser:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        employees = Employee.objects.select_related('user').order_by('-is_active', 'full_name')
+        data = [{
+            'id': e.id,
+            'full_name': e.full_name,
+            'username': e.nextcloud_username,
+            'email': e.user.email if e.user_id else '',
+            'cargo': e.cargo,
+            'role': e.role,
+            'role_label': e.role_label,
+            'is_executive': e.is_executive,
+            'is_active': e.is_active,
+            'solo_movil': e.solo_movil,
+            'is_self': e.user_id == request.user.id,
+        } for e in employees]
+        return Response(data)
+
+
+class AdminUserUpdateView(APIView):
+    """Superuser: cambia cargo, rol ejecutivo o activa/desactiva un empleado.
+
+    Desactivar también apaga el User de Django (bloquea el login). El flag
+    is_executive se re-sincroniza desde los grupos de Nextcloud en cada login
+    OAuth, así que para que persista hay que reflejarlo también en Nextcloud.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, employee_id):
+        if not request.user.is_superuser:
+            return Response({'error': 'Acceso no autorizado'}, status=403)
+
+        try:
+            emp = Employee.objects.select_related('user').get(id=employee_id)
+        except Employee.DoesNotExist:
+            return Response({'error': 'Empleado no encontrado'}, status=404)
+
+        changed = []
+        if 'cargo' in request.data:
+            emp.cargo = str(request.data.get('cargo') or '').strip()[:150]
+            changed.append('cargo')
+        if 'is_executive' in request.data:
+            emp.is_executive = bool(request.data['is_executive'])
+            changed.append('is_executive')
+        if 'is_active' in request.data:
+            value = bool(request.data['is_active'])
+            if not value and emp.user_id == request.user.id:
+                return Response({'error': 'No puedes desactivar tu propia cuenta'}, status=400)
+            emp.is_active = value
+            changed.append('is_active')
+            if emp.user_id:
+                emp.user.is_active = value
+                emp.user.save(update_fields=['is_active'])
+
+        if not changed:
+            return Response({'error': 'Nada que actualizar'}, status=status.HTTP_400_BAD_REQUEST)
+        emp.save(update_fields=changed)
+
+        return Response({
+            'id': emp.id,
+            'cargo': emp.cargo,
+            'role': emp.role,
+            'role_label': emp.role_label,
+            'is_executive': emp.is_executive,
+            'is_active': emp.is_active,
+        })
+
+
 class EmployeePendingMessagesView(APIView):
     """Ejecutivo obtiene los mensajes pendientes de un empleado específico."""
     permission_classes = [IsAuthenticated]
@@ -1997,17 +2101,17 @@ class EstadisticasAPIView(APIView):
         from django.db.models.functions import TruncMonth, TruncWeek
         from .models import ActivityItem, ActivityCategory
 
-        # Acceso global: ejecutivo, can_view_stats, o visitante externo (rol "visita").
-        allowed = False
+        # Acceso global: superuser, ejecutivo, can_view_stats, o visitante externo (rol "visita").
+        allowed = request.user.is_superuser
         try:
             executive = request.user.employee
-            allowed = executive.is_executive or executive.can_view_stats
+            allowed = allowed or executive.is_executive or executive.can_view_stats
         except Exception:
             from visits.models import Visitor
             try:
-                allowed = request.user.visitor.is_active
+                allowed = allowed or request.user.visitor.is_active
             except Visitor.DoesNotExist:
-                allowed = False
+                pass
         if not allowed:
             return Response({'error': 'Acceso no autorizado'}, status=403)
 
@@ -2240,202 +2344,6 @@ class EstadisticasAPIView(APIView):
             'by_project':     _tag_breakdown(_base_qs(first_dt, last_dt), 'project', split_by_sede=True, total_qs=tot_qs),
             'by_location':    _tag_breakdown(_base_qs(first_dt, last_dt), 'location'),
             'by_deliverable': _tag_breakdown(_base_qs(first_dt, last_dt), 'deliverable', split_by_sede=True, total_qs=tot_qs),
-        })
-
-
-class MisEstadisticasView(APIView):
-    """Estadísticas de actividades del propio empleado logueado.
-
-    Igual estructura que EstadisticasAPIView pero acotado al usuario actual y SIN
-    requerir is_executive — cada empleado ve solo sus propios datos.
-    """
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        from collections import Counter, defaultdict
-        from django.db.models.functions import TruncMonth, TruncWeek
-        from .models import ActivityItem, ActivityCategory
-
-        try:
-            employee = request.user.employee
-        except Exception:
-            return Response({'error': 'Perfil no encontrado'}, status=404)
-
-        # Ejecutivo viendo el dashboard de un empleado (iframe view_as).
-        view_as_id = request.query_params.get('view_as')
-        if view_as_id and getattr(employee, 'is_executive', False):
-            try:
-                employee = Employee.objects.get(id=view_as_id, is_active=True)
-            except Employee.DoesNotExist:
-                pass
-
-        mode = request.query_params.get('mode', 'all')
-        if mode in ('all', 'last'):
-            first_dt = last_dt = from_date = to_date = None
-            label = 'Todos' if mode == 'all' else 'Último día'
-            period = ''
-        else:
-            first_dt, last_dt, from_date, to_date, label = _parse_period(request)
-            period = f'{from_date.strftime("%d/%m/%Y")} — {to_date.strftime("%d/%m/%Y")}'
-
-        kind = request.query_params.get('kind', ActivityItem.KIND_DONE)
-        if kind not in (ActivityItem.KIND_DONE, ActivityItem.KIND_PLANNED):
-            kind = ActivityItem.KIND_DONE
-
-        cats = list(ActivityCategory.objects.order_by('order', 'label'))
-        cat_codes  = [c.code for c in cats]
-        cat_labels = {c.code: c.label for c in cats}
-        cat_colors = {c.code: c.color for c in cats}
-
-        def _base_qs(dt_from, dt_to):
-            qs = ActivityItem.objects.filter(kind=kind, report__workday__employee_id=employee.id)
-            if dt_from is not None:
-                qs = qs.filter(report__workday__start_time__gte=dt_from)
-            if dt_to is not None:
-                qs = qs.filter(report__workday__start_time__lte=dt_to)
-            return qs
-
-        if mode == 'all':
-            agg = _base_qs(None, None).aggregate(
-                mn=models.Min('report__workday__start_time'),
-                mx=models.Max('report__workday__start_time'))
-            if agg['mn'] and agg['mx']:
-                d0 = timezone.localtime(agg['mn']).strftime('%d/%m/%Y')
-                d1 = timezone.localtime(agg['mx']).strftime('%d/%m/%Y')
-                period = f'{d0} — {d1}'
-        elif mode == 'last':
-            mx = _base_qs(None, None).aggregate(mx=models.Max('report__workday__start_time'))['mx']
-            if mx:
-                day = timezone.localtime(mx).date()
-                from_date = to_date = day
-                first_dt = timezone.make_aware(_datetime.combine(day, _time(0, 0, 0)))
-                last_dt  = timezone.make_aware(_datetime.combine(day, _time(23, 59, 59)))
-                period = day.strftime('%d/%m/%Y')
-
-        rows = list(_base_qs(first_dt, last_dt).values_list(
-            'category', 'report_id', 'report__workday__start_time'))
-        total_items = len(rows)
-        cat_counter = Counter()
-        report_ids = set()
-        last_dt_seen = None
-        for cat, rep_id, st in rows:
-            cat_counter[cat] += 1
-            report_ids.add(rep_id)
-            if last_dt_seen is None or st > last_dt_seen:
-                last_dt_seen = st
-
-        categories = [
-            {'code': code, 'label': cat_labels[code], 'count': cat_counter.get(code, 0),
-             'pct': round(100 * cat_counter.get(code, 0) / total_items, 1) if total_items else 0}
-            for code in cat_codes
-        ]
-
-        # Evolución temporal (semanal: últimas 12 semanas; mensual: últimos 6 meses).
-        gran = request.query_params.get('granularity', 'week')
-        if gran not in ('month', 'week'):
-            gran = 'week'
-        if mode == 'all':
-            ev_first = None
-        elif gran == 'week':
-            ev_start = from_date - timedelta(days=from_date.weekday(), weeks=11)
-            ev_first = timezone.make_aware(_datetime.combine(ev_start, _time(0, 0, 0)))
-        else:
-            ev_start = from_date.replace(day=1)
-            for _ in range(5):
-                ev_start = (ev_start - timedelta(days=1)).replace(day=1)
-            ev_first = timezone.make_aware(_datetime.combine(ev_start, _time(0, 0, 0)))
-
-        Trunc = TruncWeek if gran == 'week' else TruncMonth
-        evo_rows = _base_qs(ev_first, last_dt).annotate(
-            p=Trunc('report__workday__start_time')).values_list('p', 'category')
-        bucket = defaultdict(lambda: defaultdict(int))
-        for p, cat in evo_rows:
-            lp = timezone.localtime(p) if timezone.is_aware(p) else p
-            key = lp.strftime('%Y-%m-%d') if gran == 'week' else lp.strftime('%Y-%m')
-            bucket[key][cat] += 1
-        monthly = []
-        for key in sorted(bucket):
-            cats = bucket[key]
-            if gran == 'week':
-                lbl = _date.fromisoformat(key).strftime('%d/%m')
-            else:
-                y, mm = key.split('-')
-                lbl = f'{_MONTH_NAMES[int(mm) - 1][:3]} {y[2:]}'
-            monthly.append({
-                'month': key, 'label': lbl, 'total': sum(cats.values()),
-                'categories': {code: cats.get(code, 0) for code in cat_codes},
-            })
-
-        # Promedios por rol (referencia): sobre todos los empleados elegibles del
-        # período, para comparar al empleado con el promedio de Supervisores y PMs.
-        elig = {}  # emp_id -> role
-        for e in Employee.objects.filter(is_active=True, is_executive=False):
-            if e.role == Employee.ROLE_OTRO:
-                continue
-            elig[e.id] = e.role
-        ref_qs = ActivityItem.objects.filter(kind=kind, report__workday__employee_id__in=elig.keys())
-        if first_dt is not None:
-            ref_qs = ref_qs.filter(report__workday__start_time__gte=first_dt)
-        if last_dt is not None:
-            ref_qs = ref_qs.filter(report__workday__start_time__lte=last_dt)
-        ref_emp_cat = defaultdict(lambda: defaultdict(int))
-        ref_emp_reports = defaultdict(set)
-        for cat, eid, rid in ref_qs.values_list('category', 'report__workday__employee_id', 'report_id'):
-            ref_emp_cat[eid][cat] += 1
-            ref_emp_reports[eid].add(rid)
-        role_counter = defaultdict(lambda: defaultdict(int))
-        role_total = defaultdict(int)
-        role_emps = defaultdict(set)
-        role_rdays = defaultdict(int)
-        for eid, ctr in ref_emp_cat.items():
-            role = elig[eid]
-            role_emps[role].add(eid)
-            role_rdays[role] += len(ref_emp_reports[eid])
-            for c, n in ctr.items():
-                role_counter[role][c] += n
-                role_total[role] += n
-        by_role = []
-        for role in (Employee.ROLE_SUPERVISOR, Employee.ROLE_PROJECT_MANAGER):
-            if not role_total.get(role):
-                continue
-            n = len(role_emps[role]) or 1
-            rd = role_rdays[role]
-            by_role.append({
-                'role': role,
-                'label': Employee.ROLE_LABELS[role],
-                'total': role_total[role],
-                'categories': {code: role_counter[role].get(code, 0) for code in cat_codes},
-                'n_emps': len(role_emps[role]),
-                'avg_total': round(role_total[role] / n, 1),
-                'avg_reports': round(rd / n, 1),
-                'avg_perday': round(role_total[role] / rd, 1) if rd else 0,
-                'avg_categories': {code: round(role_counter[role].get(code, 0) / n, 1) for code in cat_codes},
-            })
-
-        # Mismo shape que /estadisticas/ con un empleado seleccionado: el empleado
-        # logueado es siempre el "seleccionado", para reusar el render de esa página.
-        self_cats = {code: cat_counter.get(code, 0) for code in cat_codes}
-        selected_employee = {
-            'id': employee.id, 'name': employee.full_name, 'role': employee.role,
-            'total': total_items, 'categories': self_cats,
-        }
-        employees = [{
-            'id': employee.id, 'name': employee.full_name, 'role': employee.role,
-            'total': total_items, 'reports': len(report_ids),
-            'last_date': timezone.localtime(last_dt_seen).strftime('%d/%m/%Y') if last_dt_seen else '',
-            'top_category': max(self_cats, key=self_cats.get) if total_items else '',
-            'categories': self_cats,
-        }]
-
-        return Response({
-            'label': label, 'period': period, 'kind': kind, 'granularity': gran,
-            'total_items': total_items, 'total_reports': len(report_ids),
-            'category_labels': cat_labels, 'category_colors': cat_colors,
-            'categories': categories, 'monthly': monthly,
-            'by_role': by_role, 'selected_employee': selected_employee, 'employees': employees,
-            'by_project':     _tag_breakdown(_base_qs(first_dt, last_dt), 'project', split_by_sede=True, total_qs=ref_qs),
-            'by_location':    _tag_breakdown(_base_qs(first_dt, last_dt), 'location', total_qs=ref_qs),
-            'by_deliverable': _tag_breakdown(_base_qs(first_dt, last_dt), 'deliverable', split_by_sede=True, total_qs=ref_qs),
         })
 
 

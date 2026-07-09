@@ -544,8 +544,11 @@
     _showIf('exec-link-stats',    profile && (profile.is_superuser || profile.can_view_stats));
     _showIf('exec-link-tags',     profile && (profile.is_superuser || profile.can_edit_tags));
     _showIf('exec-btn-leads',     profile && (profile.is_executive || profile.can_message_leads));
-    _showIf('exec-link-visits',   profile && (profile.is_superuser || profile.can_manage_visits));
-    _showIf('exec-link-permisos', profile && profile.is_superuser);
+    // Visitas: superuser ya la tiene dentro de "Cuentas"; el botón suelto queda
+    // solo para empleados no-superuser con el permiso puntual concedido.
+    _showIf('exec-link-visits',   profile && !profile.is_superuser && profile.can_manage_visits);
+    _showIf('exec-link-cuentas',  profile && profile.is_superuser);
+    _showIf('exec-link-impersonate', profile && profile.is_superuser);
 
     if (profile && profile.is_superuser) {
       const statsCard = document.getElementById('exec-card-stats');

@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Cuentas — RedLine GS{% endblock %}
+
+{% block content %}
+<style>
+  /* JS-generated: toggles y campos inyectados por renderUsers() en la tabla de usuarios */
+  .ios-toggle { position:relative;display:inline-block;width:32px;height:18px;flex-shrink:0;vertical-align:middle; }
+  .ios-toggle input { opacity:0;width:0;height:0;position:absolute; }
+  .ios-toggle-track { position:absolute;inset:0;border-radius:18px;background:rgba(128,128,128,0.25);border:1px solid var(--cp-divider);cursor:pointer;transition:background .25s,border-color .25s,box-shadow .25s; }
+  .ios-toggle input:checked + .ios-toggle-track { background:var(--cp-blue);border-color:var(--cp-blue);box-shadow:0 0 8px color-mix(in srgb,var(--cp-blue) 35%,transparent); }
+  .ios-toggle-track::after { content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.40);transition:transform .25s cubic-bezier(.34,1.4,.64,1); }
+  .ios-toggle input:checked + .ios-toggle-track::after { transform:translateX(14px); }
+  .cu-role-pill { display:inline-flex;align-items:center;padding:2px 9px;border-radius:20px;font-size:0.7rem;font-weight:600;white-space:nowrap; }
+  .cu-role-pill.supervisor { background:color-mix(in srgb,var(--color-success) 15%,transparent);color:var(--color-success);border:1px solid color-mix(in srgb,var(--color-success) 28%,transparent); }
+  .cu-role-pill.project_manager { background:color-mix(in srgb,var(--color-info) 15%,transparent);color:var(--color-info);border:1px solid color-mix(in srgb,var(--color-info) 28%,transparent); }
+  .cu-role-pill.otro { background:color-mix(in srgb,var(--color-base-content) 10%,transparent);color:color-mix(in srgb,var(--color-base-content) 60%,transparent);border:1px solid color-mix(in srgb,var(--color-base-content) 18%,transparent); }
+  tr.cu-inactive td { opacity:.45; }
+  tr.cu-inactive td:last-child { opacity:1; }
+</style>
+
+<!-- Acceso denegado (no superuser) -->
+<div id="cu-denied" style="display:none" class="min-h-screen bg-base-200 flex items-center justify-center p-6">
+  <div class="text-center text-base-content/60">
+    <p class="text-lg font-semibold">Acceso restringido</p>
+    <p class="text-sm mt-1">Esta sección es solo para el administrador.</p>
+    <a href="/dashboard/executive/" class="btn-tinted btn-sm mt-4 text-info">Volver al panel</a>
+  </div>
+</div>
+
+<div id="cu-main" style="display:none" class="min-h-screen bg-base-200">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+    <div class="mb-3.5">
+      <a href="/dashboard/executive/" class="text-sm text-base-content/60 hover:text-base-content">← Panel ejecutivo</a>
+    </div>
+    <h1 class="text-xl font-semibold text-base-content">Cuentas</h1>
+    <p class="text-sm text-base-content/60 mt-0.5">Usuarios, visitas y permisos en un solo lugar.</p>
+
+    <div class="mt-4 flex items-center gap-1.5" role="tablist">
+      <button type="button" id="cu-tab-usuarios" data-cu-tab="usuarios" class="btn-tinted btn-sm text-info" role="tab">Usuarios</button>
+      <button type="button" id="cu-tab-visitas" data-cu-tab="visitas" class="btn btn-ghost btn-sm text-base-content/50" role="tab">Visitas</button>
+      <button type="button" id="cu-tab-permisos" data-cu-tab="permisos" class="btn btn-ghost btn-sm text-base-content/50" role="tab">Permisos</button>
+    </div>
+
+    <!-- Usuarios (panel propio) -->
+    <div id="cu-panel-usuarios" class="mt-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="cu-search" type="search" placeholder="Buscar por nombre o cargo…" oninput="renderUsers()"
+               class="input input-sm input-bordered bg-base-100 w-full max-w-xs">
+        <label class="flex items-center gap-2 text-sm text-base-content/60 cursor-pointer select-none">
+          <input id="cu-show-inactive" type="checkbox" class="checkbox checkbox-xs" onchange="renderUsers()">
+          Mostrar inactivos
+        </label>
+        <span id="cu-count" class="text-xs text-base-content/40 ml-auto"></span>
+      </div>
+
+      <div class="mt-3 rounded-lg border border-base-content/10 bg-base-100 overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Empleado</th>
+              <th>Cargo</th>
+              <th class="text-center">Rol</th>
+              <th class="text-center">Ejecutivo</th>
+              <th class="text-center">Activo</th>
+            </tr>
+          </thead>
+          <tbody id="cu-rows">
+            <tr><td colspan="5" class="text-center text-base-content/40 py-10">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p id="cu-empty" style="display:none" class="text-center text-base-content/40 py-10 text-sm">Sin resultados.</p>
+      <p class="text-xs text-base-content/40 mt-3">
+        El rol (Supervisor / Project Manager) se deriva del cargo. Desactivar un empleado también bloquea su
+        inicio de sesión. El flag Ejecutivo se re-sincroniza desde los grupos de Nextcloud en cada login —
+        para un cambio permanente, actualiza también el grupo <code>Executives</code> en Nextcloud.
+      </p>
+    </div>
+
+    <!-- Visitas / Permisos (iframes, como antes) -->
+    <div id="cu-panel-frames" class="mt-3 rounded-lg border border-base-content/10 overflow-hidden bg-base-100" style="display:none;height:calc(100vh - 230px)">
+      <iframe id="cu-frame-visitas" data-src="{% url 'visits:manage' %}" class="w-full h-full" style="display:none;border:none"></iframe>
+      <iframe id="cu-frame-permisos" data-src="{% url 'permisos_admin' %}" class="w-full h-full" style="display:none;border:none"></iframe>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+var _users = [];
+
+function showDenied() {
+  document.getElementById('cu-main').style.display = 'none';
+  document.getElementById('cu-denied').style.display = '';
+}
+
+function apiFetch(url, opts) {
+  opts = opts || {};
+  var access = localStorage.getItem('access');
+  opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + access });
+  return fetch(url, opts).then(function (res) {
+    if (res.status !== 401) return res;
+    var refresh = localStorage.getItem('refresh');
+    if (!refresh) return res;
+    return fetch('/api/auth/token/refresh/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh: refresh })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.access) return res;
+      localStorage.setItem('access', d.access);
+      opts.headers['Authorization'] = 'Bearer ' + d.access;
+      return fetch(url, opts);
+    });
+  });
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function selectTab(tab) {
+  ['usuarios', 'visitas', 'permisos'].forEach(function (t) {
+    var btn = document.getElementById('cu-tab-' + t);
+    var active = t === tab;
+    btn.className = active ? 'btn-tinted btn-sm text-info' : 'btn btn-ghost btn-sm text-base-content/50';
+    var frame = document.getElementById('cu-frame-' + t);
+    if (frame) {
+      frame.style.display = active ? '' : 'none';
+      if (active && !frame.src) frame.src = frame.dataset.src;
+    }
+  });
+  document.getElementById('cu-panel-usuarios').style.display = (tab === 'usuarios') ? '' : 'none';
+  document.getElementById('cu-panel-frames').style.display   = (tab === 'usuarios') ? 'none' : '';
+}
+
+document.querySelectorAll('[data-cu-tab]').forEach(function (btn) {
+  btn.addEventListener('click', function () { selectTab(btn.dataset.cuTab); });
+});
+
+// ── Usuarios ──────────────────────────────────────────────────────────────
+function loadUsers() {
+  apiFetch('/api/admin/users/')
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json();
+    })
+    .then(function (data) { _users = data || []; renderUsers(); })
+    .catch(function (e) { if (e !== 'forbidden') console.error(e); });
+}
+
+function rolePill(u) {
+  return '<span class="cu-role-pill ' + u.role + '" id="cu-pill-' + u.id + '">' + escapeHtml(u.role_label) + '</span>';
+}
+
+function renderUsers() {
+  var rows = document.getElementById('cu-rows');
+  var empty = document.getElementById('cu-empty');
+  var q = (document.getElementById('cu-search').value || '').trim().toLowerCase();
+  var showInactive = document.getElementById('cu-show-inactive').checked;
+
+  var list = _users.filter(function (u) {
+    if (!showInactive && !u.is_active) return false;
+    if (!q) return true;
+    return (u.full_name || '').toLowerCase().indexOf(q) >= 0
+        || (u.cargo || '').toLowerCase().indexOf(q) >= 0
+        || (u.username || '').toLowerCase().indexOf(q) >= 0;
+  });
+
+  var actives = _users.filter(function (u) { return u.is_active; }).length;
+  document.getElementById('cu-count').textContent = actives + ' activos · ' + _users.length + ' en total';
+
+  if (!list.length) { rows.innerHTML = ''; empty.style.display = ''; return; }
+  empty.style.display = 'none';
+
+  rows.innerHTML = list.map(function (u) {
+    var sub = escapeHtml(u.username) + (u.email ? ' · ' + escapeHtml(u.email) : '')
+      + (u.solo_movil ? ' · <span class="text-warning">Solo móvil</span>' : '');
+    return '<tr class="' + (u.is_active ? '' : 'cu-inactive') + '" id="cu-row-' + u.id + '">'
+      + '<td><div class="font-medium text-base-content">' + escapeHtml(u.full_name) + '</div>'
+      + '<div class="text-xs text-base-content/50">' + sub + '</div></td>'
+      + '<td><input type="text" value="' + escapeHtml(u.cargo) + '" placeholder="Sin cargo" '
+      +   'class="input input-xs input-bordered bg-base-100 w-44" '
+      +   'data-id="' + u.id + '" onchange="saveUser(this, {cargo: this.value})" '
+      +   'onkeydown="if(event.key===\'Enter\')this.blur()"></td>'
+      + '<td class="text-center">' + rolePill(u) + '</td>'
+      + '<td class="text-center"><label class="ios-toggle">'
+      +   '<input type="checkbox" data-id="' + u.id + '" ' + (u.is_executive ? 'checked' : '')
+      +   ' onchange="saveUser(this, {is_executive: this.checked})">'
+      +   '<span class="ios-toggle-track"></span></label></td>'
+      + '<td class="text-center"><label class="ios-toggle">'
+      +   '<input type="checkbox" data-id="' + u.id + '" ' + (u.is_active ? 'checked' : '')
+      +   (u.is_self ? ' disabled title="No puedes desactivar tu propia cuenta"' : '')
+      +   ' onchange="saveUser(this, {is_active: this.checked})">'
+      +   '<span class="ios-toggle-track"></span></label></td>'
+      + '</tr>';
+  }).join('');
+}
+
+function saveUser(el, payload) {
+  var id = el.dataset.id;
+  el.disabled = true;
+  apiFetch('/api/admin/users/' + id + '/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+    .then(function (res) {
+      if (res.status === 403) { showDenied(); return Promise.reject('forbidden'); }
+      return res.json().then(function (d) {
+        if (!res.ok) return Promise.reject(d.error || 'Error al guardar');
+        var u = _users.filter(function (x) { return String(x.id) === String(id); })[0];
+        if (u) { u.cargo = d.cargo; u.role = d.role; u.role_label = d.role_label; u.is_executive = d.is_executive; u.is_active = d.is_active; }
+        renderUsers();
+      });
+    })
+    .catch(function (e) {
+      if (e === 'forbidden') return;
+      alert(typeof e === 'string' ? e : 'Error de conexión');
+      renderUsers(); // revertir al estado guardado
+    });
+}
+
+// arranque
+(function () {
+  var access = localStorage.getItem('access');
+  if (!access) { showDenied(); return; }
+  apiFetch('/api/auth/me/')
+    .then(function (res) { return res.json(); })
+    .then(function (me) {
+      if (!me || !me.is_superuser) { showDenied(); return; }
+      document.getElementById('cu-main').style.display = '';
+      selectTab('usuarios');
+      loadUsers();
+    })
+    .catch(function () { showDenied(); });
+})();
+</script>
+{% endblock %}

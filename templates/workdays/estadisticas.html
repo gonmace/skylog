@@ -377,9 +377,7 @@
 var _mode = 'all';
 var _gran = 'week';
 var _data = null;
-// Vista personal embebida: el empleado ve solo sus datos (mismo diseño, sin filtros de rol/empleado).
 var _embed = new URLSearchParams(window.location.search).get('embed') === '1';
-var _selfOnly = false;
 
 function setGran(g) {
   _gran = g;
@@ -405,7 +403,7 @@ function setMode(m) {
 }
 
 function buildApiUrl() {
-  var base = _selfOnly ? '/api/mis-estadisticas/' : '/api/estadisticas/';
+  var base = '/api/estadisticas/';
   var qs = [];
   if (_mode === 'all') {
     qs.push('mode=all');
@@ -422,12 +420,10 @@ function buildApiUrl() {
   }
   qs.push('kind=' + document.getElementById('es-sel-kind').value);
   qs.push('granularity=' + _gran);
-  if (!_selfOnly) {
-    var role = document.getElementById('es-sel-role').value;
-    var emp  = document.getElementById('es-sel-emp').value;
-    if (role) qs.push('role=' + role);
-    if (emp)  qs.push('employee=' + emp);
-  }
+  var role = document.getElementById('es-sel-role').value;
+  var emp  = document.getElementById('es-sel-emp').value;
+  if (role) qs.push('role=' + role);
+  if (emp)  qs.push('employee=' + emp);
   return base + '?' + qs.join('&');
 }
 
@@ -612,12 +608,11 @@ function _setupStickyOutline() {
   fetch('/api/auth/me/', { headers: { 'Authorization': 'Bearer ' + access } })
     .then(function(res) { return res.json(); })
     .then(function(me) {
-      // Empleado normal: vista personal (mismo diseño, solo sus datos, sin filtros de rol/empleado).
-      // Quien tenga can_view_stats accede a la vista global completa, como un ejecutivo.
-      if (!me.is_executive && !me.can_view_stats && !me.is_visitor) {
-        _selfOnly = true;
-        document.getElementById('es-grp-role').style.display = 'none';
-        document.getElementById('es-grp-emp').style.display = 'none';
+      // Solo ejecutivos, empleados con can_view_stats y visitantes externos ven
+      // estadísticas. Los empleados normales ya no tienen vista personal.
+      if (!me.is_executive && !me.can_view_stats && !me.is_visitor && !me.is_superuser) {
+        showDenied();
+        return;
       }
       // Visitante externo: sin dashboard; el logo (en círculo blanco) reemplaza el botón PDF.
       if (me.is_visitor) {

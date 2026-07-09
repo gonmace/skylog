@@ -9,8 +9,9 @@ from .views import (
     ReporteAPIView, ReporteExportView, CertificadoExportView, ResetMobileDeviceView,
     EmployeePendingMessagesView, EmployeeViewDataView, CloseStaleWorkdaysView, CloseDayMessagesView,
     DoneActivitiesView, ClassifyDoneView, TagsListView, TagMergeView, TagIgnoreView,
-    TagUnmergeView, TagRenameView, TagCreateView, TagEmployeesView, EstadisticasAPIView, MisEstadisticasView,
+    TagUnmergeView, TagRenameView, TagCreateView, TagEmployeesView, EstadisticasAPIView,
     MessageLeadsView, AdminPermissionsListView, AdminPermissionsUpdateView,
+    AdminUsersListView, AdminUserUpdateView,
 )
 
 urlpatterns = [
@@ -29,6 +30,8 @@ urlpatterns = [
     path('messages/<int:message_id>/dismiss/', DismissMessageView.as_view()),
     path('admin/permissions/', AdminPermissionsListView.as_view()),
     path('admin/permissions/<int:employee_id>/', AdminPermissionsUpdateView.as_view()),
+    path('admin/users/', AdminUsersListView.as_view()),
+    path('admin/users/<int:employee_id>/', AdminUserUpdateView.as_view()),
     path('workday/monthly/', WorkdayMonthlyView.as_view()),
     path('employees/<int:employee_id>/monthly/', EmployeeMonthlyView.as_view()),
     path('calendar/notes/', CalendarNotesView.as_view()),
@@ -47,7 +50,6 @@ urlpatterns = [
     path('reporte/export/', ReporteExportView.as_view()),
     path('reporte/export-certificado/', CertificadoExportView.as_view(), name='reporte-export-certificado'),
     path('estadisticas/', EstadisticasAPIView.as_view()),
-    path('mis-estadisticas/', MisEstadisticasView.as_view()),
     path('tags/', TagsListView.as_view()),
     path('tags/create/', TagCreateView.as_view()),
     path('tags/merge/', TagMergeView.as_view()),

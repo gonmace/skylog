@@ -57,40 +57,6 @@
     border:1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
     color:var(--color-warning); font-size:.8rem; font-weight:600; cursor:pointer; font-family:inherit;
   }
-
-  /* ── Mis estadísticas (reutiliza el diseño de /estadisticas/) ─── */
-  .es-mode-tab { padding:7px 14px;font-size:0.78rem;font-weight:500;color:var(--cp-text-lo);background:transparent;border:none;cursor:pointer;font-family:inherit;transition:background .15s,color .15s; }
-  .es-mode-tab.active { background:color-mix(in srgb,var(--cp-blue) 20%,transparent);color:var(--cp-blue); }
-  .es-mode-tab:not(.active):hover { background:rgba(255,255,255,0.05);color:var(--cp-text-mid); }
-  .es-kpi { font-variant-numeric:tabular-nums; }
-  .es-table { width:100%;border-collapse:collapse;white-space:nowrap; }
-  .es-table thead th { font-size:0.64rem;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--cp-text-lo);padding:10px 14px;text-align:left;vertical-align:bottom; }
-  .es-table thead th:first-child { padding-left:24px; }
-  .es-table thead th.center { text-align:center; }
-  .es-table tbody tr { border-bottom:1px solid rgba(255,255,255,0.04); }
-  .es-table tbody td { padding:10px 14px;color:var(--cp-text-hi);font-size:0.84rem;vertical-align:middle; }
-  .es-table tbody td:first-child { padding-left:24px; }
-  .es-table tbody td.center { text-align:center;font-variant-numeric:tabular-nums; }
-  .es-table tbody td.muted { color:var(--cp-text-lo); }
-  .es-table tbody tr.es-ref-row td { color:var(--cp-text-mid);font-style:italic;background:color-mix(in srgb,var(--cp-text-lo) 6%,transparent); }
-  .es-table tbody tr.es-ref-row.es-ref-first td { border-top:2px solid rgba(255,255,255,0.12); }
-  .es-role-pill { display:inline-flex;align-items:center;padding:2px 9px;border-radius:20px;font-size:0.7rem;font-weight:600; }
-  .es-role-pill.supervisor { background:color-mix(in srgb,var(--color-success) 15%,transparent);color:var(--color-success);border:1px solid color-mix(in srgb,var(--color-success) 28%,transparent); }
-  .es-role-pill.project_manager { background:color-mix(in srgb,var(--color-info) 15%,transparent);color:var(--color-info);border:1px solid color-mix(in srgb,var(--color-info) 28%,transparent); }
-  .es-legend { display:flex;flex-wrap:wrap;gap:5px 14px;justify-content:center;margin-top:10px; }
-  .es-leg-item { display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;color:rgba(255,255,255,0.7); }
-  .es-leg-dot { width:11px;height:11px;border-radius:3px;flex-shrink:0; }
-  /* ── Tag breakdown rows (JS-generated: usado por renderTagList()) ─── */
-  .es-taglist { display:flex;flex-direction:column;gap:11px; }
-  .es-tagrow { display:flex;flex-direction:column;gap:4px; }
-  .es-taghead { display:flex;justify-content:space-between;align-items:baseline;gap:8px; }
-  .es-tagname { font-size:0.8rem;color:var(--cp-text-hi);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0; }
-  .es-tagcount { font-size:0.9rem;font-weight:700;font-variant-numeric:tabular-nums;color:var(--cp-text-hi);flex:none; }
-  .es-tagtot { font-size:0.78rem;font-weight:500;color:var(--cp-text-lo); }
-  .es-tagbar { height:8px;border-radius:99px;background:rgba(255,255,255,0.06);overflow:hidden;width:100%; }
-  .es-tagbar-fill { height:100%;border-radius:99px;background:var(--cp-blue); }
-  .es-tagbar-stack { display:flex; }
-  .es-tagseg { height:100%; }
 </style>
 
 <div class="min-h-screen bg-base-200">
@@ -189,19 +155,19 @@
           <div class="flex flex-col gap-3 text-left w-full max-w-xs mb-6">
             <div class="flex items-start gap-3">
               <div class="badge badge-primary shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold p-0">1</div>
-              <span class="text-sm text-base-content/60">Descarga <code class="text-primary font-mono text-xs">RedLineGS.zip</code> y extrae los archivos en una carpeta fija</span>
+              <span class="text-sm text-base-content/60">Descarga <code class="text-primary font-mono text-xs">RedLineGS.zip</code> y extrae el instalador</span>
             </div>
             <div class="flex items-start gap-3">
               <div class="badge badge-primary shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold p-0">2</div>
-              <span class="text-sm text-base-content/60">Desactiva el antivirus temporalmente</span>
+              <span class="text-sm text-base-content/60">Ejecuta <code class="text-primary font-mono text-xs">RedLineGS_setup.exe</code> — no pide permisos de administrador y desinstala versiones anteriores solo</span>
             </div>
             <div class="flex items-start gap-3">
               <div class="badge badge-primary shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold p-0">3</div>
-              <span class="text-sm text-base-content/60">Ejecuta <code class="text-primary font-mono text-xs">RedLineGS_setup.exe</code> y sigue el asistente — no se abrirá el navegador</span>
+              <span class="text-sm text-base-content/60">Si Windows lo bloquea: <span class="text-base-content/80">"Más información" → "Ejecutar de todas formas"</span></span>
             </div>
             <div class="flex items-start gap-3">
               <div class="badge badge-primary shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold p-0">4</div>
-              <span class="text-sm text-base-content/60">Vuelve aquí — el panel se activará automáticamente</span>
+              <span class="text-sm text-base-content/60">Vuelve aquí — el agente se vinculará con tu cuenta automáticamente</span>
             </div>
           </div>
           <div class="flex flex-col items-center gap-3 w-full">
@@ -211,6 +177,7 @@
               </svg>
               Descargar agente
             </button>
+            <button id="btn-setup-pair" style="display:none" class="btn-tinted btn-sm w-full max-w-xs text-success">Ya lo instalé — vincular agente</button>
             <button id="btn-setup-retry" class="btn-ghost-tinted btn-sm w-full max-w-xs text-base-content/60">Ya lo instalé — verificar conexión</button>
           </div>
         </div>
@@ -293,6 +260,13 @@
             </div>
           </div>
           <div class="flex gap-2">
+            <button id="btn-pair-agent" class="hidden btn-tinted btn-sm gap-2 shrink-0 text-success">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-1.828a4 4 0 000-5.656l-3-3a4 4 0 00-5.656 5.656"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.172 13.828a4 4 0 010-5.656l3-3a4 4 0 015.656 5.656l-1.5 1.5"/>
+              </svg>
+              Vincular agente
+            </button>
             <button id="btn-download-agent" class="hidden btn-ghost-tinted btn-sm gap-2 shrink-0 text-info">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -359,134 +333,6 @@
     </div><!-- /right column -->
 
     </div><!-- /grid -->
-
-    <!-- Mis estadísticas (reutiliza render + diseño de /estadisticas/) -->
-    <div id="es-panel" class="mt-2">
-      <div class="card bg-base-100 shadow overflow-hidden mb-5">
-        <div class="flex items-center justify-between flex-wrap gap-x-3 gap-y-1 px-7 py-5 border-b border-base-content/10">
-          <p class="text-lg font-bold tracking-tight">Mis estadísticas de actividades</p>
-          <p id="es-period" class="text-sm font-semibold text-base-content/70 text-right">Cargando...</p>
-        </div>
-        <div class="flex items-end flex-wrap gap-3 px-7 py-4">
-          <div class="flex flex-col gap-1">
-            <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Periodo</span>
-            <div class="flex border border-base-content/15 rounded-xl overflow-hidden">
-              <button type="button" id="es-tab-all" class="es-mode-tab active" onclick="setMode('all')">Todos</button>
-              <button type="button" id="es-tab-month" class="es-mode-tab" onclick="setMode('month')">Este mes</button>
-              <button type="button" id="es-tab-last" class="es-mode-tab" onclick="setMode('last')">Último</button>
-            </div>
-          </div>
-          <div class="flex flex-col gap-1">
-            <span class="text-xs font-semibold tracking-widest uppercase text-base-content/40">Actividades</span>
-            <select id="es-sel-kind" class="select select-bordered select-sm" style="min-width:130px" onchange="loadStats()">
-              <option value="done">Realizadas</option>
-              <option value="planned">Planificadas</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div id="es-loading" class="py-16 text-center text-base-content/40 text-sm">Cargando...</div>
-      <div id="es-empty" style="display:none" class="py-16 text-center text-base-content/30 text-sm">
-        No hay actividades clasificadas para el período.
-      </div>
-
-      <div id="es-content" style="display:none">
-        <!-- KPIs -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-          <div class="card bg-base-100 shadow px-5 py-4">
-            <span class="text-xs uppercase tracking-widest text-base-content/40">Actividades</span>
-            <span id="es-kpi-items" class="es-kpi text-2xl font-bold mt-1">—</span>
-          </div>
-          <div class="card bg-base-100 shadow px-5 py-4">
-            <span class="text-xs uppercase tracking-widest text-base-content/40">Reportes (días)</span>
-            <span id="es-kpi-reports" class="es-kpi text-2xl font-bold mt-1">—</span>
-          </div>
-          <div class="card bg-base-100 shadow px-5 py-4">
-            <span class="text-xs uppercase tracking-widest text-base-content/40">Actividades/día</span>
-            <span id="es-kpi-perday" class="es-kpi text-2xl font-bold mt-1 text-accent">—</span>
-          </div>
-          <div class="card bg-base-100 shadow px-5 py-4">
-            <span class="text-xs uppercase tracking-widest text-base-content/40">Categoría top</span>
-            <span id="es-kpi-topcat" class="text-base font-bold mt-1 leading-tight">—</span>
-          </div>
-          <span id="es-kpi-emps" style="display:none"></span>
-        </div>
-
-        <!-- Charts -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
-          <div class="card bg-base-100 shadow px-6 py-5">
-            <p class="text-sm font-bold mb-3">Distribución por categoría</p>
-            <div style="position:relative;height:300px"><div id="es-chart-dist"></div></div>
-            <div id="es-leg-dist" class="es-legend"></div>
-          </div>
-          <div class="card bg-base-100 shadow px-6 py-5">
-            <p class="text-sm font-bold mb-3">Yo vs promedio de cada rol <span class="text-base-content/40 font-normal">(% del total)</span></p>
-            <div style="position:relative"><div id="es-chart-role"></div></div>
-            <div id="es-leg-role" class="es-legend"></div>
-          </div>
-        </div>
-        <div class="card bg-base-100 shadow px-6 py-5 mb-5">
-          <div class="flex items-center justify-between mb-3">
-            <p id="es-evo-title" class="text-sm font-bold">Evolución semanal</p>
-            <div class="flex border border-base-content/15 rounded-lg overflow-hidden">
-              <button type="button" id="es-gran-month" class="es-mode-tab" onclick="setGran('month')">Mensual</button>
-              <button type="button" id="es-gran-week" class="es-mode-tab active" onclick="setGran('week')">Semanal</button>
-            </div>
-          </div>
-          <div style="position:relative;height:360px"><div id="es-chart-month"></div></div>
-          <div id="es-leg-month" class="es-legend"></div>
-        </div>
-
-        <!-- Mis métricas -->
-        <div class="card bg-base-100 shadow overflow-hidden mb-5">
-          <div class="px-7 py-4 border-b border-base-content/10"><p class="text-sm font-bold">Mis métricas</p></div>
-          <div class="overflow-x-auto">
-            <table class="es-table"><thead><tr id="es-met-head"></tr></thead><tbody id="es-met-body"></tbody></table>
-          </div>
-        </div>
-
-        <!-- Desglose por categoría -->
-        <div class="card bg-base-100 shadow overflow-hidden mb-5">
-          <div class="px-7 py-4 border-b border-base-content/10"><p class="text-sm font-bold">Desglose por categoría</p></div>
-          <div class="overflow-x-auto">
-            <table class="es-table"><thead><tr id="es-emp-head"></tr></thead><tbody id="es-emp-body"></tbody></table>
-          </div>
-        </div>
-
-        <!-- Top categorías -->
-        <div class="card bg-base-100 shadow overflow-hidden mb-5">
-          <div class="px-7 py-4 border-b border-base-content/10"><p class="text-sm font-bold">Top categorías</p></div>
-          <div class="px-4 py-4">
-            <div id="es-topcat-single"></div>
-            <div id="es-topcat-cmp" style="display:none"></div>
-          </div>
-        </div>
-
-        <!-- Proyectos / Sede / Entregables (tags extraídos por el LLM) -->
-        <div id="es-sede-legend" class="flex flex-wrap items-center gap-3 mb-2 text-xs text-base-content/60"></div>
-        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1.1fr)] gap-5">
-          <div id="es-card-sede" class="card bg-base-100 shadow px-6 py-5">
-            <p class="text-sm font-bold mb-3">Por sede <span class="text-base-content/40 font-normal text-xs">· actividades</span></p>
-            <div id="es-tags-location" class="es-taglist"></div>
-          </div>
-          <div class="card bg-base-100 shadow px-6 py-5">
-            <div class="flex items-baseline justify-between mb-3">
-              <p class="text-sm font-bold">Por proyecto <span class="text-base-content/40 font-normal text-xs">· actividades</span></p>
-              <span id="es-leg-project" class="text-xs"></span>
-            </div>
-            <div id="es-tags-project" class="es-taglist"></div>
-          </div>
-          <div class="card bg-base-100 shadow px-6 py-5">
-            <div class="flex items-baseline justify-between mb-3">
-              <p class="text-sm font-bold">Por entregable <span class="text-base-content/40 font-normal text-xs">· actividades</span></p>
-              <span id="es-leg-deliverable" class="text-xs"></span>
-            </div>
-            <div id="es-tags-deliverable" class="es-taglist"></div>
-          </div>
-        </div>
-      </div>
-    </div>
 
   </div><!-- /container -->
   </div><!-- /view-employee -->
@@ -556,8 +402,8 @@
             </svg>
           </div>
           <div>
-            <p class="text-sm font-semibold">Desactiva el antivirus</p>
-            <p class="text-xs mt-0.5 text-base-content/40">El ejecutable puede ser bloqueado por Windows Defender. Desactívalo temporalmente antes de ejecutar.</p>
+            <p class="text-sm font-semibold">Si Windows lo bloquea</p>
+            <p class="text-xs mt-0.5 text-base-content/40">SmartScreen puede mostrar un aviso: haz clic en "Más información" y luego "Ejecutar de todas formas".</p>
           </div>
         </div>
         <div class="flex items-start gap-3">
@@ -568,7 +414,7 @@
           </div>
           <div>
             <p class="text-sm font-semibold">Extrae el ZIP</p>
-            <p class="text-xs mt-0.5 text-base-content/40">Extrae en una carpeta fija como <code class="text-xs bg-base-content/8 px-1 rounded">C:\RedLineGS\</code>. No muevas los archivos después.</p>
+            <p class="text-xs mt-0.5 text-base-content/40">Dentro solo viene el instalador <code class="text-xs bg-base-content/8 px-1 rounded">RedLineGS_setup.exe</code> — no necesita ningún archivo de configuración.</p>
           </div>
         </div>
         <div class="flex items-start gap-3">
@@ -580,7 +426,7 @@
           </div>
           <div>
             <p class="text-sm font-semibold">Ejecuta el instalador</p>
-            <p class="text-xs mt-0.5 text-base-content/40">Haz doble clic en <code class="text-xs bg-base-content/8 px-1 rounded">RedLineGS_setup.exe</code> y sigue el asistente.</p>
+            <p class="text-xs mt-0.5 text-base-content/40">Haz doble clic en <code class="text-xs bg-base-content/8 px-1 rounded">RedLineGS_setup.exe</code>. No pide permisos de administrador y si tenías una versión anterior se desinstala automáticamente.</p>
           </div>
         </div>
         <div class="flex items-start gap-3">
@@ -591,7 +437,7 @@
           </div>
           <div>
             <p class="text-sm font-semibold">Vuelve a este panel</p>
-            <p class="text-xs mt-0.5 text-base-content/40">Tras autorizar, el panel se activará automáticamente en unos segundos.</p>
+            <p class="text-xs mt-0.5 text-base-content/40">El panel detecta al agente y lo vincula con tu cuenta automáticamente en unos segundos.</p>
           </div>
         </div>
       </div>
@@ -656,95 +502,4 @@
 
 {% block extra_scripts %}
 <script src="{% static 'dashboard/js/employee.js' %}" defer></script>
-<script src="{% static 'js/vendor/apexcharts.min.js' %}"></script>
-<script src="{% static 'dashboard/js/estadisticas-render.js' %}?v=12"></script>
-<script>
-// ── "Mis estadísticas": glue del panel personal. Reutiliza las funciones de render
-//    compartidas (estadisticas-render.js) sobre /api/mis-estadisticas/. ──
-var _mode = 'all';
-var _gran = 'week';
-var _data = null;
-
-function setMode(m) {
-  _mode = m;
-  document.getElementById('es-tab-all').classList.toggle('active', m === 'all');
-  document.getElementById('es-tab-month').classList.toggle('active', m === 'month');
-  document.getElementById('es-tab-last').classList.toggle('active', m === 'last');
-  loadStats();
-}
-function setGran(g) {
-  _gran = g;
-  document.getElementById('es-gran-month').classList.toggle('active', g === 'month');
-  document.getElementById('es-gran-week').classList.toggle('active', g === 'week');
-  document.getElementById('es-evo-title').textContent = g === 'week' ? 'Evolución semanal' : 'Evolución mensual';
-  loadStats();
-}
-function buildApiUrl() {
-  var qs = ['mode=' + _mode, 'kind=' + document.getElementById('es-sel-kind').value, 'granularity=' + _gran];
-  // Ejecutivo viendo a un empleado (iframe): propagar view_as a la API de stats.
-  var va = new URLSearchParams(window.location.search).get('view_as');
-  if (va) qs.push('view_as=' + encodeURIComponent(va));
-  return '/api/mis-estadisticas/?' + qs.join('&');
-}
-
-function _msCookie(n) { var m = document.cookie.match('(^|;)\\s*' + n + '\\s*=\\s*([^;]+)'); return m ? decodeURIComponent(m.pop()) : null; }
-function _msToken(n) { return _msCookie(n) || localStorage.getItem(n); }
-function _msRefresh() {
-  var r = _msToken('refresh');
-  if (!r) return Promise.resolve(null);
-  return fetch('/api/auth/token/refresh/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh: r }) })
-    .then(function (res) { return res.ok ? res.json() : null; })
-    .then(function (d) { if (d && d.access) { localStorage.setItem('access', d.access); return d.access; } return null; })
-    .catch(function () { return null; });
-}
-
-function loadStats() {
-  var access = _msToken('access');
-  if (!access) return;
-  var url = buildApiUrl(), firstHidden = document.getElementById('es-content').style.display === 'none';
-  if (firstHidden) document.getElementById('es-loading').style.display = '';
-  fetch(url, { headers: { Authorization: 'Bearer ' + access } })
-    .then(function (res) {
-      if (res.status === 401) { return _msRefresh().then(function (na) { return na ? fetch(url, { headers: { Authorization: 'Bearer ' + na } }) : null; }); }
-      return res;
-    })
-    .then(function (res) { return res ? res.json() : null; })
-    .then(function (data) {
-      if (!data) return;
-      _data = data;
-      document.getElementById('es-loading').style.display = 'none';
-      var parts = [];
-      if (data.period) parts.push(data.period);
-      parts.push(data.total_items + ' actividad' + (data.total_items !== 1 ? 'es' : ''));
-      parts.push(data.total_reports + ' reportes');
-      document.getElementById('es-period').textContent = parts.join(' · ');
-      if (!data.total_items) {
-        document.getElementById('es-empty').style.display = '';
-        document.getElementById('es-content').style.display = 'none';
-        return;
-      }
-      document.getElementById('es-empty').style.display = 'none';
-      document.getElementById('es-content').style.display = '';
-      renderKpis(data);
-      renderCharts(data);
-      renderMetrics(data);
-      renderEmployees(data);
-      renderTopCat(data);
-      renderTags(data, { keepSede: true });
-    })
-    .catch(function () { document.getElementById('es-loading').style.display = 'none'; });
-}
-
-// Cargar cuando la vista de empleado es visible (para que los gráficos midan el ancho).
-(function () {
-  var view = document.getElementById('view-employee');
-  var done = false;
-  function go() {
-    if (done || !view || view.classList.contains('hidden')) return;
-    done = true; loadStats();
-  }
-  if (view) { new MutationObserver(go).observe(view, { attributes: true, attributeFilter: ['class'] }); }
-  go();
-})();
-</script>
 {% endblock %}

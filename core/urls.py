@@ -7,6 +7,7 @@ from django.http import JsonResponse
 from django.views.decorators.cache import never_cache
 from home.sitemaps import StaticViewSitemap
 from core.admin import admin_site
+from authentication.views import ImpersonateView
 
 sitemaps = {
     'static': StaticViewSitemap,
@@ -35,6 +36,9 @@ urlpatterns = [
     path('visitas/', include('visits.urls')),
     path('etiquetas/', never_cache(TemplateView.as_view(template_name='workdays/tags.html')), name='tags_admin'),
     path('permisos/', never_cache(TemplateView.as_view(template_name='workdays/permisos.html')), name='permisos_admin'),
+    path('cuentas/', never_cache(TemplateView.as_view(template_name='dashboard/cuentas.html')), name='cuentas_admin'),
+    # Impersonación de empleados — solo superuser (responde 404 al resto)
+    path('impersonar/', never_cache(ImpersonateView.as_view()), name='impersonate'),
     path('dashboard/', include('workdays.urls')),
     path('dashboard/employee/', never_cache(TemplateView.as_view(template_name='dashboard/employee.html')), name='dashboard_employee'),
     path('dashboard/executive/', never_cache(TemplateView.as_view(template_name='dashboard/executive.html')), name='dashboard_executive'),

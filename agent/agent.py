@@ -2,8 +2,14 @@
 RedLine GS — Agente de capturas de pantalla para Windows
 Corre silenciosamente en segundo plano, sin interfaz gráfica.
 
+v2.x: el agente se instala SIN configuración. Al abrir el dashboard de Skylog
+en el navegador, éste detecta al agente por el puerto local y le envía un token
+de emparejamiento (POST /pair). Recién entonces el agente sabe de qué empleado
+se trata. Si pierde la sesión, vuelve a quedar "sin identidad" y el dashboard
+lo re-empareja automáticamente — nunca depende de un config.json descargado.
+
 Uso:
-  redline_agent.exe           -- ejecutar normalmente (activa si no tiene token)
+  redline_agent.exe           -- ejecutar normalmente
   redline_agent.exe --install -- agregar al inicio de Windows (HKCU, sin admin)
   redline_agent.exe --uninstall -- quitar del inicio de Windows
 """
@@ -14,8 +20,6 @@ import sys
 import time
 import logging
 import threading
-import webbrowser
-import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from io import BytesIO
 
@@ -50,79 +54,64 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+PRODUCTION_SERVER_URL = 'https://skylog.redlinegs.com'
+
 DEFAULT_CONFIG = {
-    'server_url': 'https://skylog.redlinegs.com' if getattr(sys, 'frozen', False) else 'http://localhost:8000',
+    'server_url': PRODUCTION_SERVER_URL if getattr(sys, 'frozen', False) else 'http://localhost:8000',
     'jwt_token': '',
+    'refresh_token': '',
     'capture_interval_minutes': 30,
+    'employee_name': '',
+    'employee_email': '',
 }
 
-
-PRODUCTION_SERVER_URL = 'https://skylog.redlinegs.com'
+_config_lock = threading.Lock()
 
 
 def load_config():
-    # Si no existe un config en AppData, buscar config.json junto al exe (viene en el ZIP de descarga)
-    if not os.path.exists(CONFIG_PATH):
-        bundled = os.path.join(BASE_DIR, 'config.json')
-        if os.path.exists(bundled):
-            try:
-                with open(bundled, encoding='utf-8') as f:
-                    config = json.load(f)
-                save_config(config)
-                return config
-            except Exception:
-                pass
-        save_config(DEFAULT_CONFIG)
-        return DEFAULT_CONFIG.copy()
-
-    with open(CONFIG_PATH, encoding='utf-8') as f:
-        config = json.load(f)
-
-    # Si no hay jwt ni activation_token, intentar recuperar activation_token del bundled config
-    if not config.get('jwt_token', '').strip() and not config.get('activation_token', '').strip():
-        bundled = os.path.join(BASE_DIR, 'config.json')
-        if os.path.exists(bundled):
-            try:
-                with open(bundled, encoding='utf-8') as f:
-                    bundled_config = json.load(f)
-                token = bundled_config.get('activation_token', '').strip()
-                if token:
-                    config['activation_token'] = token
-                    save_config(config)
-            except Exception:
-                pass
-
-    # El exe compilado siempre usa el servidor de producción, ignorando lo que
-    # haya en el config (evita configs de dev con localhost que se cuelan).
-    if getattr(sys, 'frozen', False):
-        if config.get('server_url') != PRODUCTION_SERVER_URL:
+    with _config_lock:
+        if not os.path.exists(CONFIG_PATH):
+            _write_config(DEFAULT_CONFIG)
+            return DEFAULT_CONFIG.copy()
+        with open(CONFIG_PATH, encoding='utf-8') as f:
+            config = json.load(f)
+        # El exe compilado siempre usa el servidor de producción, ignorando lo que
+        # haya en el config (evita configs de dev con localhost que se cuelan).
+        if getattr(sys, 'frozen', False) and config.get('server_url') != PRODUCTION_SERVER_URL:
             config['server_url'] = PRODUCTION_SERVER_URL
-            save_config(config)
-    return config
+            _write_config(config)
+        return config
 
 
 def save_config(config):
+    with _config_lock:
+        _write_config(config)
+
+
+def _write_config(config):
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
 
-# ── Activación automática ─────────────────────────────────────────────────────
-
-def needs_setup(config):
-    jwt = config.get('jwt_token', '').strip()
-    activation = config.get('activation_token', '').strip()
-    return not jwt and not activation
+def is_paired(config):
+    return bool(config.get('jwt_token', '').strip())
 
 
-def activate_with_token(config):
-    """Intercambia el activation_token por JWT. Sin interacción del usuario."""
-    server_url = config.get('server_url', '').rstrip('/')
-    activation_token = config.get('activation_token', '').strip()
+# ── Emparejamiento (el dashboard envía el token via POST /pair) ──────────────
 
-    log.info('Activando agente con token de un solo uso...')
+def pair_with_token(activation_token, server_url=None):
+    """Intercambia el activation_token (recibido del dashboard) por JWT.
+    Devuelve el config actualizado o None si falla."""
+    config = load_config()
+    if server_url and not getattr(sys, 'frozen', False):
+        # En dev el dashboard puede indicar su propio server_url (localhost:8000)
+        config['server_url'] = server_url.rstrip('/')
+    base = config.get('server_url', '').rstrip('/')
+
+    log.info('Emparejando agente con token enviado por el dashboard...')
     try:
         resp = requests.post(
-            f"{server_url}/api/agent/activate/",
+            f"{base}/api/agent/activate/",
             json={'activation_token': activation_token},
             timeout=15,
         )
@@ -130,35 +119,40 @@ def activate_with_token(config):
             data = resp.json()
             config['jwt_token'] = data['access']
             config['refresh_token'] = data['refresh']
-            config['activation_token'] = ''
             config['employee_name'] = data.get('employee_name', '')
             config['employee_email'] = data.get('employee_email', '')
             save_config(config)
-            log.info(f"Agente activado para: {data.get('employee_name')} ({data.get('employee_email')})")
+            log.info(f"Agente emparejado con: {data.get('employee_name')} ({data.get('employee_email')})")
             return config
-        elif resp.status_code == 410:
-            log.error('El token de activación ya fue usado o expiró. Descarga uno nuevo desde el dashboard.')
-        elif resp.status_code == 404:
-            log.error('Token de activación inválido.')
-        else:
-            log.error(f'Error en activación: {resp.status_code} {resp.text}')
+        log.error(f'Error en emparejamiento: {resp.status_code} {resp.text}')
     except Exception as e:
-        log.error(f'Error conectando al servidor para activación: {e}')
+        log.error(f'Error conectando al servidor para emparejar: {e}')
     return None
 
 
-NEEDS_REAUTH = object()  # centinela: refresh falló, hay que re-autenticar
+def unpair():
+    """Borra la identidad. El dashboard re-empareja en la próxima visita."""
+    config = load_config()
+    config['jwt_token'] = ''
+    config['refresh_token'] = ''
+    config['employee_name'] = ''
+    config['employee_email'] = ''
+    save_config(config)
+    return config
+
+
+NEEDS_REAUTH = object()  # centinela: refresh falló, hay que re-emparejar
 
 
 def refresh_jwt(config):
     """Usa el refresh_token para obtener un nuevo access_token sin intervención del usuario.
-    Devuelve el config actualizado, NEEDS_REAUTH si hay que re-autenticar, o None si es un
+    Devuelve el config actualizado, NEEDS_REAUTH si hay que re-emparejar, o None si es un
     error de red transitorio."""
     server_url = config.get('server_url', '').rstrip('/')
     refresh_token = config.get('refresh_token', '').strip()
 
     if not refresh_token:
-        log.warning('Sin refresh_token. Iniciando re-autenticación...')
+        log.warning('Sin refresh_token. El agente queda a la espera de emparejamiento.')
         return NEEDS_REAUTH
 
     try:
@@ -176,59 +170,11 @@ def refresh_jwt(config):
             log.info('JWT renovado automáticamente.')
             return config
         else:
-            log.warning('Refresh token inválido o expirado. Iniciando re-autenticación...')
+            log.warning('Refresh token inválido o expirado. Esperando re-emparejamiento desde el dashboard.')
             return NEEDS_REAUTH
     except Exception as e:
         log.error(f'Error de red renovando JWT: {e}')
         return None  # error transitorio, reintentar en el próximo ciclo
-
-
-def run_setup(config):
-    """Fallback: abre el navegador si no hay activation_token (instalación manual)."""
-    server_url = config.get('server_url', '').rstrip('/')
-    device_token = str(uuid.uuid4())
-
-    setup_url = f"{server_url}/login/agent/setup/?device={device_token}"
-    log.info(f'Activación necesaria. Abriendo navegador: {setup_url}')
-    webbrowser.open(setup_url)
-
-    log.info('Esperando que el empleado complete el login...')
-    poll_url = f"{server_url}/api/agent/token/?device={device_token}"
-    attempts = 0
-    max_attempts = 120  # 10 min a 5s cada uno
-
-    while attempts < max_attempts:
-        time.sleep(5)
-        attempts += 1
-        try:
-            resp = requests.get(poll_url, timeout=10)
-            if resp.status_code in (202, 404):
-                continue
-            if resp.status_code == 200:
-                data = resp.json()
-                if data.get('status') == 'ok':
-                    config['jwt_token'] = data['access']
-                    if data.get('refresh'):
-                        config['refresh_token'] = data['refresh']
-                    save_config(config)
-                    try:
-                        me = requests.get(
-                            f"{server_url}/api/auth/me/",
-                            headers={'Authorization': f"Bearer {config['jwt_token']}"},
-                            timeout=10,
-                        ).json()
-                        config['employee_name'] = me.get('full_name', '')
-                        config['employee_email'] = me.get('email', '')
-                        save_config(config)
-                        log.info(f"Agente activado para: {me.get('full_name')} ({me.get('email')})")
-                    except Exception:
-                        log.info('Token recibido y guardado. Agente activado.')
-                    return config
-        except Exception as e:
-            log.error(f'Error en polling de activación: {e}')
-
-    log.error('Tiempo de espera de activación agotado (10 min).')
-    return None
 
 
 # ── Windows startup ───────────────────────────────────────────────────────────
@@ -261,7 +207,7 @@ def uninstall_startup():
     winreg.CloseKey(key)
 
 
-# ── Ping server (local health check para el dashboard) ───────────────────────
+# ── Servidor local (health check + emparejamiento desde el dashboard) ────────
 
 PING_PORT = 7337
 
@@ -269,10 +215,27 @@ _capture_event = threading.Event()
 _force_capture = False  # True cuando el trigger viene del servidor (bypass de intervalo)
 
 
+def _allowed_origin(origin):
+    if not origin:
+        return None
+    allowed = {PRODUCTION_SERVER_URL, 'http://localhost:8000', 'http://127.0.0.1:8000'}
+    config_url = load_config().get('server_url', '').rstrip('/')
+    if config_url:
+        allowed.add(config_url)
+    return origin if origin.rstrip('/') in allowed else None
+
+
 class _LocalHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/ping':
-            self._json(200, b'{"status":"ok"}')
+            config = load_config()
+            body = json.dumps({
+                'status': 'ok',
+                'version': AGENT_VERSION,
+                'paired': is_paired(config),
+                'employee_email': config.get('employee_email', ''),
+            }).encode()
+            self._json(200, body)
         else:
             self.send_response(404)
             self.end_headers()
@@ -281,9 +244,33 @@ class _LocalHandler(BaseHTTPRequestHandler):
         if self.path == '/trigger':
             _capture_event.set()  # despierta el loop principal
             self._json(200, b'{"status":"triggered"}')
+        elif self.path == '/pair':
+            self._handle_pair()
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _handle_pair(self):
+        try:
+            length = int(self.headers.get('Content-Length') or 0)
+            data = json.loads(self.rfile.read(length) or b'{}')
+            token = (data.get('activation_token') or '').strip()
+        except Exception:
+            token = ''
+        if not token:
+            self._json(400, b'{"status":"error","error":"activation_token requerido"}')
+            return
+        result = pair_with_token(token, data.get('server_url'))
+        if result:
+            _capture_event.set()  # que el loop retome de inmediato con la nueva identidad
+            body = json.dumps({
+                'status': 'paired',
+                'employee_name': result.get('employee_name', ''),
+                'employee_email': result.get('employee_email', ''),
+            }).encode()
+            self._json(200, body)
+        else:
+            self._json(502, b'{"status":"error","error":"No se pudo activar con el servidor"}')
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -302,8 +289,12 @@ class _LocalHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _cors_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
+        # Solo el dashboard de Skylog puede hablar con el agente
+        origin = _allowed_origin(self.headers.get('Origin'))
+        if origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         # Requerido por Chrome 94+ para permitir fetch desde HTTPS a localhost
         self.send_header('Access-Control-Allow-Private-Network', 'true')
 
@@ -430,37 +421,21 @@ def capture_and_upload(config, workday_id):
 
 
 def run():
-    log.info('Agente iniciado.')
+    log.info(f'Agente v{AGENT_VERSION} iniciado.')
 
     threading.Thread(target=start_ping_server, daemon=True).start()
-    log.info(f'Servidor de ping escuchando en 127.0.0.1:{PING_PORT}')
+    log.info(f'Servidor local escuchando en 127.0.0.1:{PING_PORT}')
 
     threading.Thread(target=ws_thread, daemon=True).start()
 
     config = load_config()
-
-    # Activación silenciosa con token pre-configurado (viene en el ZIP de descarga)
-    if config.get('activation_token', '').strip() and not config.get('jwt_token', '').strip():
-        log.info('Token de activación encontrado. Activando agente silenciosamente...')
-        result = activate_with_token(config)
-        if result:
-            config = result
-            log.info('Agente activado correctamente.')
-        else:
-            log.warning('Activación con token falló (token expirado o inválido). Intentando activación manual...')
-            config['activation_token'] = ''
-            save_config(config)
-
-    # Fallback: si aún no hay JWT, abrir navegador para login con Nextcloud
-    if needs_setup(config):
-        config = run_setup(config)
-        if not config:
-            log.error('Activación fallida. Intenta ejecutar el agente de nuevo.')
-            return
+    if not is_paired(config):
+        log.info('Agente sin identidad. Esperando emparejamiento desde el dashboard de Skylog...')
 
     POLL_ACTIVE   = 15 * 60   # máximo 15 min con jornada activa
     POLL_INACTIVE = 30 * 60   # cada 30 min sin jornada (solo para mantener heartbeat)
     POLL_ERROR    = 10 * 60   # reintento tras cualquier error
+    POLL_UNPAIRED = 30        # sin identidad: solo re-chequear el config
     last_capture_time = 0
     last_workday_id = None
 
@@ -471,46 +446,48 @@ def run():
             try:
                 config = load_config()
 
-                data = get_active_workday(config)
-                capture_interval = int(data.get('capture_interval_minutes') or config.get('capture_interval_minutes', 30)) * 60
-
-                if data.get('active'):
-                    workday_id = data['workday_id']
-                    screenshots_enabled = data.get('screenshots_enabled', True)
-                    now = time.time()
-                    is_new_workday = (workday_id != last_workday_id)
-                    time_since_last = now - last_capture_time
-                    forced = _force_capture
+                if not is_paired(config):
+                    poll_interval = POLL_UNPAIRED
                     _force_capture = False
-
-                    if not screenshots_enabled:
-                        log.info('Capturas deshabilitadas para este empleado. Omitiendo captura.')
-                        last_workday_id = workday_id
-                    elif forced or is_new_workday or time_since_last >= capture_interval:
-                        if forced:
-                            log.info('Captura forzada por el servidor.')
-                        result = capture_and_upload(config, workday_id)
-                        log.info(f"Captura enviada — screenshot_id={result.get('screenshot_id')}")
-                        last_capture_time = now
-                        last_workday_id = workday_id
-
-                    poll_interval = min(POLL_ACTIVE, capture_interval)
                 else:
-                    log.debug('Sin jornada activa.')
-                    last_workday_id = None
+                    data = get_active_workday(config)
+                    capture_interval = int(data.get('capture_interval_minutes') or config.get('capture_interval_minutes', 30)) * 60
+
+                    if data.get('active'):
+                        workday_id = data['workday_id']
+                        screenshots_enabled = data.get('screenshots_enabled', True)
+                        now = time.time()
+                        is_new_workday = (workday_id != last_workday_id)
+                        time_since_last = now - last_capture_time
+                        forced = _force_capture
+                        _force_capture = False
+
+                        if not screenshots_enabled:
+                            log.info('Capturas deshabilitadas para este empleado. Omitiendo captura.')
+                            last_workday_id = workday_id
+                        elif forced or is_new_workday or time_since_last >= capture_interval:
+                            if forced:
+                                log.info('Captura forzada por el servidor.')
+                            result = capture_and_upload(config, workday_id)
+                            log.info(f"Captura enviada — screenshot_id={result.get('screenshot_id')}")
+                            last_capture_time = now
+                            last_workday_id = workday_id
+
+                        poll_interval = min(POLL_ACTIVE, capture_interval)
+                    else:
+                        log.debug('Sin jornada activa.')
+                        last_workday_id = None
 
             except requests.exceptions.HTTPError as e:
                 if e.response is not None and e.response.status_code == 401:
                     log.info('JWT expirado. Intentando renovar...')
                     result = refresh_jwt(config)
                     if result is NEEDS_REAUTH:
-                        config['jwt_token'] = ''
-                        config['refresh_token'] = ''
-                        save_config(config)
-                        config = run_setup(config)
-                        if not config:
-                            log.error('Re-autenticación fallida. El agente se detendrá.')
-                            return
+                        # Perdió la sesión: queda sin identidad y el dashboard
+                        # lo re-empareja automáticamente en la próxima visita.
+                        config = unpair()
+                        log.info('Identidad descartada. Esperando re-emparejamiento desde el dashboard.')
+                        poll_interval = POLL_UNPAIRED
                     elif result is None:
                         poll_interval = POLL_ERROR
                     else:

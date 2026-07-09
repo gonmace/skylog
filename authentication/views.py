@@ -1,5 +1,4 @@
 import io
-import json
 import secrets
 import zipfile
 import requests as http_requests
@@ -316,6 +315,7 @@ class MeView(APIView):
             })
         data = EmployeeSerializer(employee).data
         data['agent_latest_version'] = settings.AGENT_LATEST_VERSION
+        data['agent_min_version'] = settings.AGENT_MIN_VERSION
         data['is_superuser'] = request.user.is_superuser
         return Response(data)
 
@@ -386,8 +386,31 @@ class AgentActivateView(APIView):
         })
 
 
+class AgentPairTokenView(APIView):
+    """El dashboard (navegador ya autenticado) pide aquí un token de emparejamiento
+    de un solo uso y se lo entrega al agente local (POST http://127.0.0.1:7337/pair).
+    Así el agente aprende la identidad del empleado al conectarse por Skylog,
+    sin depender de un config.json descargado en la instalación."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            employee = request.user.employee
+        except Employee.DoesNotExist:
+            return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
+        if not employee.is_active or not employee.skylog_access:
+            return Response({'error': 'Sin acceso a Skylog'}, status=403)
+
+        activation_token = AgentActivationToken.create_for_employee(employee)
+        return Response({
+            'activation_token': activation_token.token,
+            'server_url': request.build_absolute_uri('/').rstrip('/'),
+        })
+
+
 class AgentDownloadView(APIView):
-    """Descarga un ZIP con el ejecutable del agente y un config.json pre-activado."""
+    """Descarga un ZIP con el instalador del agente. Sin config.json: el agente
+    se instala sin identidad y se empareja automáticamente desde el dashboard."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -404,26 +427,9 @@ class AgentDownloadView(APIView):
         if not os.path.exists(agent_file):
             return Response({'error': 'El agente compilado no está disponible aún'}, status=503)
 
-        try:
-            employee = request.user.employee
-        except Exception:
-            return Response({'error': 'Perfil de empleado no encontrado'}, status=404)
-
-        activation_token = AgentActivationToken.create_for_employee(employee)
-
-        server_url = request.build_absolute_uri('/').rstrip('/')
-        config_data = {
-            'server_url': server_url,
-            'jwt_token': '',
-            'activation_token': activation_token.token,
-            'capture_interval_minutes': 30,
-        }
-        config_bytes = json.dumps(config_data, indent=2, ensure_ascii=False).encode('utf-8')
-
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.write(agent_file, agent_filename)
-            zf.writestr('config.json', config_bytes)
         buf.seek(0)
 
         response = HttpResponse(buf.read(), content_type='application/zip')
@@ -431,11 +437,132 @@ class AgentDownloadView(APIView):
         return response
 
 
+# ── Impersonación (helpers compartidos por DevLoginView e ImpersonateView) ────
+
+def _find_employee(param):
+    from employees.models import Employee
+    qs = Employee.objects.select_related('user')
+    if str(param).isdigit():
+        return qs.filter(pk=int(param)).first()
+    return qs.filter(nextcloud_username=param).first()
+
+
+def _issue_jwt_login(request, user):
+    """Emite JWT para `user`, lo setea como cookies y redirige al dashboard."""
+    refresh = RefreshToken.for_user(user)
+    access  = str(refresh.access_token)
+    ref     = str(refresh)
+    return_url = settings.NEXTCLOUD_RETURN_URL or request.build_absolute_uri('/dashboard/')
+    response = render(request, 'authentication/oauth2_success.html', {
+        'access': access,
+        'refresh': ref,
+        'redirect_url': return_url,
+    })
+    _set_jwt_cookies(response, access, ref)
+    return response
+
+
+def _render_employee_picker(request, title, subtitle, dev_links=False):
+    from django.db.models import Count
+    from django.http import HttpResponse
+    from employees.models import Employee
+    emps = (Employee.objects
+            .filter(is_active=True)
+            .select_related('user')
+            .annotate(
+                n_reports=Count('workdays__daily_report', distinct=True),
+                n_acts=Count('workdays__daily_report__activity_items', distinct=True),
+            )
+            .order_by('-n_acts', '-n_reports', 'full_name'))
+    rows = []
+    for e in emps:
+        rol = 'Ejecutivo' if e.is_executive else 'Empleado'
+        acc = '' if e.skylog_access else ' <span style="color:#e11">(sin skylog)</span>'
+        nouser = '' if e.user_id else ' <span style="color:#e11">(sin user)</span>'
+        disabled = 'pointer-events:none;opacity:.45' if e.user_id is None else ''
+        rows.append(
+            f'<tr><td><a style="{disabled}" href="?employee={e.pk}">{e.full_name}</a>{acc}{nouser}</td>'
+            f'<td>{rol}</td><td style="text-align:right">{e.n_reports}</td>'
+            f'<td style="text-align:right">{e.n_acts}</td></tr>')
+    extra = ('<br>También: <a href="?role=executive">Dev ejecutivo</a> · '
+             '<a href="?role=employee">Dev empleado vacío</a> · '
+             '<a href="?role=superuser">Dev superuser</a>') if dev_links else ''
+    html = f'''<!doctype html><html><head><meta charset="utf-8"><title>{title}</title>
+<style>
+ body{{font-family:system-ui,sans-serif;background:#0f1115;color:#e5e7eb;max-width:760px;margin:40px auto;padding:0 16px}}
+ h1{{font-size:18px}} p{{color:#9ca3af;font-size:13px}}
+ table{{width:100%;border-collapse:collapse;margin-top:16px;font-size:14px}}
+ th,td{{padding:8px 10px;border-bottom:1px solid #232733;text-align:left}}
+ th{{color:#9ca3af;font-size:12px;text-transform:uppercase;letter-spacing:.05em}}
+ a{{color:#60a5fa;text-decoration:none}} a:hover{{text-decoration:underline}}
+ tr:hover td{{background:#161a22}}
+</style></head><body>
+<h1>{title}</h1>
+<p>{subtitle} Ordenado por cantidad de actividades.{extra}</p>
+<table><thead><tr><th>Empleado</th><th>Rol</th><th>Reportes</th><th>Actividades</th></tr></thead>
+<tbody>{''.join(rows)}</tbody></table>
+</body></html>'''
+    return HttpResponse(html)
+
+
+def _superuser_from_request(request):
+    """Devuelve el superuser autenticado (por sesión de Django o JWT en cookie/header), o None."""
+    if request.user.is_authenticated and request.user.is_superuser:
+        return request.user
+    from rest_framework_simplejwt.authentication import JWTAuthentication
+    raw = request.COOKIES.get('access', '')
+    header = request.META.get('HTTP_AUTHORIZATION', '')
+    if not raw and header.startswith('Bearer '):
+        raw = header[7:]
+    if raw:
+        try:
+            auth = JWTAuthentication()
+            user = auth.get_user(auth.get_validated_token(raw))
+            if user.is_superuser:
+                return user
+        except Exception:
+            pass
+    return None
+
+
+class ImpersonateView(View):
+    """Un superuser entra al dashboard como cualquier empleado. Disponible en
+    producción y desarrollo; responde 404 a cualquiera que no sea superuser.
+
+    - /impersonar/                        → lista de empleados para elegir
+    - /impersonar/?employee=<id|username> → emite JWT como ese empleado
+
+    Nota: al impersonar se reemplazan las cookies de sesión JWT; para volver a
+    tu propia cuenta hay que iniciar sesión de nuevo.
+    """
+
+    def get(self, request):
+        from django.http import Http404, HttpResponseNotFound
+        if _superuser_from_request(request) is None:
+            raise Http404
+
+        emp_param = request.GET.get('employee')
+        if emp_param:
+            employee = _find_employee(emp_param)
+            if employee is None or employee.user_id is None:
+                return HttpResponseNotFound(f'Empleado "{emp_param}" no encontrado o sin usuario asociado.')
+            return _issue_jwt_login(request, employee.user)
+
+        return _render_employee_picker(
+            request,
+            title='Impersonar empleado',
+            subtitle='Solo superusers. Clic en un nombre para entrar al dashboard como ese empleado '
+                     '(reemplaza tu sesión actual).',
+        )
+
+
 class DevLoginView(View):
     """Login automático para desarrollo local. Solo disponible con DEBUG=True.
 
     - /dev-login/                        → usuario dev ejecutivo sintético (default)
     - /dev-login/?role=employee          → usuario dev empleado sintético (sin datos)
+    - /dev-login/?role=superuser         → usuario dev ejecutivo + superuser (ve
+                                           Cuentas, Impersonar, Permisos, etc.)
     - /dev-login/?pick=1                 → lista de empleados reales (con su cantidad
                                            de datos) para elegir a quién impersonar
     - /dev-login/?employee=<id|username> → impersona a ese empleado real (con sus datos)
@@ -448,26 +575,36 @@ class DevLoginView(View):
 
         # Selector de empleados reales.
         if request.GET.get('pick'):
-            return self._render_picker(request)
+            return _render_employee_picker(
+                request,
+                title='Dev login — impersonar empleado',
+                subtitle='Solo desarrollo (DEBUG). Clic en un nombre para loguearte como ese empleado y ver su pantalla.',
+                dev_links=True,
+            )
 
         # Impersonar un empleado real existente (id o nextcloud_username).
         emp_param = request.GET.get('employee')
         if emp_param:
             from django.http import HttpResponseNotFound
-            employee = self._find_employee(emp_param)
+            employee = _find_employee(emp_param)
             if employee is None or employee.user_id is None:
                 return HttpResponseNotFound(f'Empleado "{emp_param}" no encontrado o sin usuario asociado.')
-            return self._issue(request, employee.user)
+            return _issue_jwt_login(request, employee.user)
 
         # Usuario dev sintético por rol (comportamiento original).
-        role = request.GET.get('role', 'executive')  # 'executive' | 'employee'
+        role = request.GET.get('role', 'executive')  # 'executive' | 'employee' | 'superuser'
         username = f'dev_{role}'
-        is_executive = (role == 'executive')
+        is_superuser = (role == 'superuser')
+        is_executive = (role == 'executive') or is_superuser
         user, _ = User.objects.get_or_create(username=username, defaults={
             'first_name': 'Dev',
             'last_name': role.capitalize(),
             'email': f'{username}@localhost',
         })
+        if is_superuser and not (user.is_superuser and user.is_staff):
+            user.is_superuser = True
+            user.is_staff = True
+            user.save(update_fields=['is_superuser', 'is_staff'])
 
         from employees.models import Employee
         employee, _ = Employee.objects.get_or_create(
@@ -488,68 +625,7 @@ class DevLoginView(View):
         if changed:
             employee.save(update_fields=changed)
 
-        return self._issue(request, user)
-
-    # ── helpers ───────────────────────────────────────────────────────────
-    def _find_employee(self, param):
-        from employees.models import Employee
-        qs = Employee.objects.select_related('user')
-        if str(param).isdigit():
-            return qs.filter(pk=int(param)).first()
-        return qs.filter(nextcloud_username=param).first()
-
-    def _issue(self, request, user):
-        refresh = RefreshToken.for_user(user)
-        access  = str(refresh.access_token)
-        ref     = str(refresh)
-        return_url = settings.NEXTCLOUD_RETURN_URL or request.build_absolute_uri('/dashboard/')
-        response = render(request, 'authentication/oauth2_success.html', {
-            'access': access,
-            'refresh': ref,
-            'redirect_url': return_url,
-        })
-        _set_jwt_cookies(response, access, ref)
-        return response
-
-    def _render_picker(self, request):
-        from django.db.models import Count
-        from django.http import HttpResponse
-        from employees.models import Employee
-        emps = (Employee.objects
-                .filter(is_active=True)
-                .select_related('user')
-                .annotate(
-                    n_reports=Count('workdays__daily_report', distinct=True),
-                    n_acts=Count('workdays__daily_report__activity_items', distinct=True),
-                )
-                .order_by('-n_acts', '-n_reports', 'full_name'))
-        rows = []
-        for e in emps:
-            rol = 'Ejecutivo' if e.is_executive else 'Empleado'
-            acc = '' if e.skylog_access else ' <span style="color:#e11">(sin skylog)</span>'
-            nouser = '' if e.user_id else ' <span style="color:#e11">(sin user)</span>'
-            disabled = 'pointer-events:none;opacity:.45' if e.user_id is None else ''
-            rows.append(
-                f'<tr><td><a style="{disabled}" href="?employee={e.pk}">{e.full_name}</a>{acc}{nouser}</td>'
-                f'<td>{rol}</td><td style="text-align:right">{e.n_reports}</td>'
-                f'<td style="text-align:right">{e.n_acts}</td></tr>')
-        html = f'''<!doctype html><html><head><meta charset="utf-8"><title>Dev login — impersonar</title>
-<style>
- body{{font-family:system-ui,sans-serif;background:#0f1115;color:#e5e7eb;max-width:760px;margin:40px auto;padding:0 16px}}
- h1{{font-size:18px}} p{{color:#9ca3af;font-size:13px}}
- table{{width:100%;border-collapse:collapse;margin-top:16px;font-size:14px}}
- th,td{{padding:8px 10px;border-bottom:1px solid #232733;text-align:left}}
- th{{color:#9ca3af;font-size:12px;text-transform:uppercase;letter-spacing:.05em}}
- a{{color:#60a5fa;text-decoration:none}} a:hover{{text-decoration:underline}}
- tr:hover td{{background:#161a22}}
-</style></head><body>
-<h1>Dev login — impersonar empleado</h1>
-<p>Solo desarrollo (DEBUG). Clic en un nombre para loguearte como ese empleado y ver su pantalla.
-Ordenado por cantidad de actividades. También: <a href="?role=executive">Dev ejecutivo</a> · <a href="?role=employee">Dev empleado vacío</a></p>
-<table><thead><tr><th>Empleado</th><th>Rol</th><th>Reportes</th><th>Actividades</th></tr></thead>
-<tbody>{''.join(rows)}</tbody></table>
-</body></html>'''
-        return HttpResponse(html)
+        return _issue_jwt_login(request, user)
 
 
 class MobileLoginView(APIView):

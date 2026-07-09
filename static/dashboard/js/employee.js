@@ -333,6 +333,37 @@
       btnStart.classList.remove('hidden');
     }
 
+    async function pingAgent() {
+      try {
+        const resp = await fetch('http://127.0.0.1:7337/ping', { signal: AbortSignal.timeout(2000) });
+        if (!resp.ok) return null;
+        // Agentes v1 devuelven {"status":"ok"} sin campo paired
+        return await resp.json().catch(() => ({ status: 'ok' }));
+      } catch { return null; }
+    }
+
+    // Emparejamiento automático: pide un token de un solo uso al servidor y se lo
+    // entrega al agente local. Así el agente aprende quién es el empleado sin
+    // depender del config.json de instalación (agentes v2+).
+    async function pairLocalAgent() {
+      try {
+        const resp = await fetch('/api/agent/pair/', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'X-CSRFToken': getCsrfToken() },
+        });
+        if (!resp.ok) return false;
+        const data = await resp.json();
+        const r = await fetch('http://127.0.0.1:7337/pair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activation_token: data.activation_token, server_url: data.server_url }),
+          signal: AbortSignal.timeout(20000),
+        });
+        if (r.ok) showToast('Agente vinculado a tu cuenta.');
+        return r.ok;
+      } catch { return false; }
+    }
+
     async function checkAgentAlive() {
       try {
         const resp = await fetch('/api/auth/me/', { headers: authHeaders() });
@@ -343,11 +374,16 @@
           if (data.agent_is_active) return true;
         }
       } catch { /* ignorar */ }
-      if (!isEmbedded) try {
-        const resp = await fetch('http://127.0.0.1:7337/ping', { signal: AbortSignal.timeout(2000) });
-        return resp.ok;
-      } catch { return false; }
-      return false;
+      if (isEmbedded) return false;
+
+      const ping = await pingAgent();
+      if (!ping) return false;
+      if (!('paired' in ping)) return true; // agente v1: solo sabe responder ok
+      const pairedToMe = ping.paired
+        && (!ping.employee_email || !profileData.email || ping.employee_email === profileData.email);
+      if (pairedToMe) return true;
+      // Instalado pero sin identidad (o de otro empleado): emparejarlo ahora
+      return await pairLocalAgent();
     }
 
     let setupPollInterval = null;
@@ -382,10 +418,23 @@
         return;
       }
 
+      const versionLt = (a, b) => {
+        const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
+        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+          const x = pa[i] || 0, y = pb[i] || 0;
+          if (x !== y) return x < y;
+        }
+        return false;
+      };
+
       const neverInstalled = !profileData?.agent_version && !profileData?.agent_last_seen;
       const installed  = profileData?.agent_version || '';
       const latest     = profileData?.agent_latest_version || '';
+      const minVer     = profileData?.agent_min_version || '';
+      // outdated = solo muestra el aviso "Actualizar"; belowMin = bloquea el fichaje.
+      // Con AGENT_MIN_VERSION vacío en el servidor nunca se bloquea por versión (rollout suave).
       const outdated   = installed && latest && installed !== latest;
+      const belowMin   = installed && minVer && versionLt(installed, minVer);
 
       if (neverInstalled && !agentIsActive) {
         setupRequired.classList.remove('hidden');
@@ -393,6 +442,10 @@
         btnStart.classList.add('hidden');
         btnEnd.classList.add('hidden');
         document.getElementById('agent-version-card')?.classList.add('hidden');
+        // Embebido en Nextcloud no se puede hablar con 127.0.0.1: ofrecer abrir
+        // Skylog en una pestaña propia, donde el emparejamiento sí corre.
+        const setupPair = document.getElementById('btn-setup-pair');
+        if (setupPair) setupPair.style.display = isEmbedded ? '' : 'none';
         startSetupPolling();
         return;
       }
@@ -401,10 +454,10 @@
       setupRequired.classList.add('hidden');
       statusCard.classList.remove('hidden');
 
-      // Deshabilitar botones si offline O si versión desactualizada
+      // Deshabilitar botones si offline O si la versión está por debajo de la mínima exigida
       const msgOffline  = 'El agente no está activo. Asegúrate de que redline_agent.exe esté corriendo.';
       const msgOutdated = `Actualiza el agente a v${latest} para poder registrar jornadas.`;
-      const blocked     = !agentIsActive || outdated;
+      const blocked     = !agentIsActive || belowMin;
       const blockMsg    = !agentIsActive ? msgOffline : msgOutdated;
       btnStart.disabled = blocked;
       btnStart.title    = blocked ? blockMsg : '';
@@ -431,6 +484,8 @@
       // Mostrar badge offline solo si está offline
       if (btnDl) btnDl.classList.toggle('hidden', agentIsActive);
       if (offlineBadge) offlineBadge.classList.toggle('hidden', agentIsActive);
+      // Embebido y offline: el pairing no corre en el iframe → botón para abrir pestaña
+      document.getElementById('btn-pair-agent')?.classList.toggle('hidden', !(isEmbedded && !agentIsActive));
 
       if (!installed) {
         versionText.textContent = 'No instalado';
@@ -683,6 +738,12 @@
       btnSetupDownload.addEventListener('click', (e) => { e.preventDefault(); downloadAgent(e.currentTarget, orig); });
     }
 
+    // "Vincular agente": abre el dashboard en pestaña propia (fuera del iframe de
+    // Nextcloud), donde sí se puede hablar con el agente local para emparejarlo.
+    const openPairTab = () => window.open(location.origin + '/dashboard/employee/', '_blank');
+    document.getElementById('btn-pair-agent')?.addEventListener('click', openPairTab);
+    document.getElementById('btn-setup-pair')?.addEventListener('click', openPairTab);
+
     if (btnSetupRetry) {
       btnSetupRetry.addEventListener('click', async () => {
         btnSetupRetry.disabled = true;
@@ -853,6 +914,9 @@
 
     // Init
     checkAgentAlive().then(updateAgentStatus);
+    // Re-chequeo periódico: detecta cuando el agente se emparejó/conectó desde
+    // otra pestaña (o volvió online) y desbloquea los botones sin recargar.
+    setInterval(async () => { updateAgentStatus(await checkAgentAlive()); }, 20000);
     loadWorkdayStatus();
     loadLastReport();
     loadPendingMessages();

@@ -1,5 +1,5 @@
 #define MyAppName "RedLine GS Agent"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "RedLine GS"
 #define MyAppExeName "redline_agent.exe"
 
@@ -8,9 +8,12 @@ AppId={{B4E2F1A3-7C8D-4E5F-9A0B-1D2E3F4A5B6C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\RedLineGS
+; Instalación per-usuario: sin UAC, sin permisos de administrador.
+; Soporta despliegue silencioso por IT: RedLineGS_setup.exe /VERYSILENT /SUPPRESSMSGBOXES
+DefaultDirName={localappdata}\RedLineGS
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
+DisableDirPage=yes
 OutputDir=dist
 OutputBaseFilename=RedLineGS_setup
 SetupIconFile=redlinegs.ico
@@ -19,9 +22,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=admin
-; Silencia la ventana del agente al iniciarse
-WindowVisible=no
+PrivilegesRequired=lowest
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -29,7 +30,6 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Files]
 Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "logo.bmp"; Flags: dontcopy
-Source: "config.default.json"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -40,8 +40,12 @@ Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RedLine GS Agent"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
 
 [Run]
-; Iniciar el agente automaticamente — abre el login de Nextcloud si no hay sesion
+; Iniciar el agente automaticamente — queda a la espera de emparejamiento desde Skylog
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait
+
+[UninstallRun]
+; Detener el agente antes de borrar archivos (per-usuario, no requiere admin)
+Filename: "taskkill"; Parameters: "/F /IM {#MyAppExeName}"; Flags: runhidden; RunOnceId: "KillAgent"
 
 [Code]
 procedure InitializeWizard;
@@ -67,25 +71,13 @@ begin
   LogoImg.Top := WizardForm.InfoBeforeMemo.Top + WizardForm.InfoBeforeMemo.Height + 4;
 end;
 
-function IsLoggedIn: Boolean;
-var
-  ConfigPath: String;
-  ConfigContent: AnsiString;
-begin
-  Result := False;
-  ConfigPath := ExpandConstant('{userappdata}\RedLineGS\config.json');
-  if FileExists(ConfigPath) then begin
-    if LoadStringFromFile(ConfigPath, ConfigContent) then
-      Result := Pos('"jwt_token": "ey', ConfigContent) > 0;
-  end;
-end;
-
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if CurPageID = wpFinished then
     WizardForm.FinishedLabel.Caption :=
-      'Completa el login con Nextcloud en el navegador que se abrió.' + #13#10 +
-      'Una vez iniciada la sesión podrás hacer clic en Finalizar.';
+      'Agente instalado.' + #13#10 +
+      'Abre Skylog en tu navegador: el agente se vinculara' + #13#10 +
+      'automaticamente con tu cuenta.';
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -93,15 +85,8 @@ var
   ResultCode: Integer;
 begin
   Result := True;
-  if CurPageID = wpFinished then begin
-    if not IsLoggedIn then begin
-      MsgBox('Aún no se ha completado el login en SKY.' + #13#10 +
-             'Por favor inicia sesión en el navegador y vuelve a intentarlo.',
-             mbInformation, MB_OK);
-      Result := False;
-    end else
-      ShellExec('open', 'https://sky.redlinegs.com/apps/external/1/', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
-  end;
+  if CurPageID = wpFinished then
+    ShellExec('open', 'https://sky.redlinegs.com/apps/external/1/', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -111,32 +96,65 @@ begin
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'RedLine GS Agent');
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+// Busca el desinstalador de una version previa (mismo AppId, sufijo _is1 de Inno)
+function GetUninstallString(Root: Integer): String;
+var
+  UnInstPath: String;
+  UnInstallString: String;
+begin
+  UnInstPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B4E2F1A3-7C8D-4E5F-9A0B-1D2E3F4A5B6C}_is1';
+  UnInstallString := '';
+  RegQueryStringValue(Root, UnInstPath, 'UninstallString', UnInstallString);
+  Result := UnInstallString;
+end;
+
+// True si redline_agent.exe sigue corriendo (tasklist + find devuelve 0 si lo encuentra)
+function AgentStillRunning(): Boolean;
 var
   ResultCode: Integer;
 begin
-  // Detener el agente silenciosamente antes de reemplazar archivos
-  ShellExec('', 'taskkill', '/F /IM redline_agent.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Result := '';
+  Exec(ExpandConstant('{cmd}'),
+    '/C tasklist /FI "IMAGENAME eq redline_agent.exe" | find /I "redline_agent.exe" >nul',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := (ResultCode = 0);
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
+function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ConfigContent: AnsiString;
-  AppDataDir: String;
-  ConfigDst: String;
+  ResultCode: Integer;
+  UninstStr: String;
 begin
-  if CurStep = ssPostInstall then begin
-    AppDataDir := ExpandConstant('{userappdata}\RedLineGS');
-    ConfigDst := AppDataDir + '\config.json';
+  Result := '';
 
-    // Solo escribir el config por defecto si no existe uno previo con tokens
-    if not FileExists(ConfigDst) then begin
-      ExtractTemporaryFile('config.default.json');
-      if LoadStringFromFile(ExpandConstant('{tmp}\config.default.json'), ConfigContent) then begin
-        ForceDirectories(AppDataDir);
-        SaveStringToFile(ConfigDst, ConfigContent, False);
-      end;
-    end;
+  // 1. Detener el agente silenciosamente (corre como el mismo usuario, no requiere admin)
+  ShellExec('', 'taskkill', '/F /IM redline_agent.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // 1b. Las versiones 1.x arrancaban ELEVADAS (el instalador viejo era admin), asi
+  // que el taskkill normal no puede matarlas. Si el proceso sigue vivo, reintentar
+  // con elevacion — un aviso UAC solo durante la migracion. Sin esto, el agente
+  // viejo queda corriendo, ocupa el puerto 7337 y sigue reportando su version vieja.
+  if AgentStillRunning() then begin
+    ShellExec('runas', 'taskkill', '/F /IM redline_agent.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(1000);
+  end;
+
+  // 2. Desinstalar una version per-usuario previa (HKCU): silencioso, sin UAC
+  UninstStr := GetUninstallString(HKCU);
+  if UninstStr <> '' then begin
+    UninstStr := RemoveQuotes(UninstStr);
+    Exec(UninstStr, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // El desinstalador (unins000.exe) se auto-elimina de forma asincrona; darle un momento
+    Sleep(1500);
+  end;
+
+  // 3. Version vieja de sistema (v1.x en Program Files, HKLM): intentar desinstalar
+  // con elevacion — un unico aviso UAC solo durante la migracion. Si el usuario
+  // cancela, seguimos igual: el proceso ya fue detenido y la clave de autostart
+  // se sobreescribe con la nueva ruta, asi que la version vieja no vuelve a correr.
+  UninstStr := GetUninstallString(HKLM);
+  if UninstStr <> '' then begin
+    UninstStr := RemoveQuotes(UninstStr);
+    ShellExec('runas', UninstStr, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(1500);
   end;
 end;
