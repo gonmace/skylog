@@ -1067,9 +1067,8 @@ class MessageLeadsView(APIView):
         if not recipients:
             return Response({'error': 'No hay destinatarios para el envío'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Firma del remitente al pie del mensaje.
-        signed_body = f"{body}\n\n— {sender.full_name}"
-
+        # El cuerpo se guarda limpio: el banner renderiza la firma del remitente
+        # estilizada al pie (color según propio/recibido).
         from asgiref.sync import async_to_sync
         from channels.layers import get_channel_layer
         channel_layer = get_channel_layer()
@@ -1083,11 +1082,11 @@ class MessageLeadsView(APIView):
                 pass
 
         for emp in recipients:
-            ExecutiveMessage.objects.create(sender=sender, recipient=emp, body=signed_body)
+            ExecutiveMessage.objects.create(sender=sender, recipient=emp, body=body)
             _notify(emp.id)
 
         # El remitente también recibe una copia de su propio aviso (se muestra en verde).
-        ExecutiveMessage.objects.create(sender=sender, recipient=sender, body=signed_body)
+        ExecutiveMessage.objects.create(sender=sender, recipient=sender, body=body)
         _notify(sender.id)
 
         return Response({'sent': len(recipients)}, status=status.HTTP_201_CREATED)

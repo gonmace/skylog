@@ -826,9 +826,9 @@
           return `
           <div class="message-banner cupertino-card" id="msg-${m.id}"${own ? ' style="border-left:3px solid var(--cp-green)"' : ''}>
             <div style="flex:1">
-              <p class="text-xs font-semibold mb-1" style="color:${nameColor}">${nameLabel}</p>
               <p class="text-sm" style="color:var(--cp-text-hi);white-space:pre-wrap">${m.body}</p>
-              <p class="text-xs mt-2 font-medium" style="color:var(--cp-text-mid)">${new Date(m.sent_at).toLocaleString('es-BO')}</p>
+              <p class="text-xs mt-2 font-semibold" style="color:${nameColor}">${own ? nameLabel : '— ' + nameLabel}</p>
+              <p class="text-xs mt-1 font-medium" style="color:var(--cp-text-mid)">${new Date(m.sent_at).toLocaleString('es-BO')}</p>
             </div>
             ${action}
           </div>`;
@@ -1084,9 +1084,9 @@
           container.innerHTML = messages.map(m => `
             <div class="message-banner cupertino-card" id="msg-${m.id}">
               <div style="flex:1">
-                <p class="text-xs font-semibold mb-1" style="color:var(--cp-orange)">${m.sender_name}</p>
                 <p class="text-sm" style="color:var(--cp-text-hi);white-space:pre-wrap">${m.body}</p>
-                <p class="text-xs mt-2 font-medium" style="color:var(--cp-text-mid)">${new Date(m.sent_at).toLocaleString('es-BO')}</p>
+                <p class="text-xs mt-2 font-semibold" style="color:var(--cp-orange)">— ${m.sender_name}</p>
+                <p class="text-xs mt-1 font-medium" style="color:var(--cp-text-mid)">${new Date(m.sent_at).toLocaleString('es-BO')}</p>
               </div>
               <button class="btn-msg-done btn-acknowledge" data-msg-id="${m.id}" data-view-as="${empId}">Listo</button>
             </div>`).join('');
