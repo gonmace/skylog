@@ -4,6 +4,8 @@
   // decide si ofrecer el fallback "Vincular agente" cuando el navegador lo bloquea.
   const isEmbedded = window.self !== window.top;
   const viewAsId   = new URLSearchParams(window.location.search).get('view_as');
+  // Popup de activación abierto por "Activar agente": se cierra solo al activar
+  const pairMode   = new URLSearchParams(window.location.search).get('pair') === '1';
 
   function avatarColorIdx(name) {
     let h = 0;
@@ -759,11 +761,27 @@
       btnSetupDownload.addEventListener('click', (e) => { e.preventDefault(); downloadAgent(e.currentTarget, orig); });
     }
 
-    // "Vincular agente": abre el dashboard en pestaña propia (fuera del iframe de
-    // Nextcloud), donde sí se puede hablar con el agente local para emparejarlo.
-    const openPairTab = () => window.open(location.origin + '/dashboard/employee/', '_blank');
-    document.getElementById('btn-pair-agent')?.addEventListener('click', openPairTab);
-    document.getElementById('btn-setup-pair')?.addEventListener('click', openPairTab);
+    // "Activar agente": el iframe de Nextcloud no puede hablar con el agente local,
+    // así que se abre una ventana emergente pequeña (fuera del iframe) que activa el
+    // agente y se cierra sola. Mientras, aquí re-chequeamos rápido para habilitar
+    // los botones apenas quede activo.
+    let fastRecheck = null;
+    function startFastRecheck() {
+      if (fastRecheck) return;
+      let tries = 0;
+      fastRecheck = setInterval(async () => {
+        tries += 1;
+        const alive = await checkAgentAlive();
+        updateAgentStatus(alive);
+        if (alive || tries >= 30) { clearInterval(fastRecheck); fastRecheck = null; }
+      }, 3000);
+    }
+    const openPairPopup = () => {
+      window.open(location.origin + '/dashboard/employee/?pair=1', 'skylog-pair', 'popup,width=430,height=420');
+      startFastRecheck();
+    };
+    document.getElementById('btn-pair-agent')?.addEventListener('click', openPairPopup);
+    document.getElementById('btn-setup-pair')?.addEventListener('click', openPairPopup);
 
     if (btnSetupRetry) {
       btnSetupRetry.addEventListener('click', async () => {
@@ -934,10 +952,20 @@
     });
 
     // Init
-    checkAgentAlive().then(updateAgentStatus);
-    // Re-chequeo periódico: detecta cuando el agente se emparejó/conectó desde
-    // otra pestaña (o volvió online) y desbloquea los botones sin recargar.
-    setInterval(async () => { updateAgentStatus(await checkAgentAlive()); }, 20000);
+    const recheckAgent = async () => {
+      const alive = await checkAgentAlive();
+      updateAgentStatus(alive);
+      if (pairMode && alive) {
+        showToast('Agente activado. Esta ventana se cerrará sola.');
+        setTimeout(() => window.close(), 1500);
+      }
+      return alive;
+    };
+    recheckAgent();
+    // pairMode (popup de activación): chequear rápido para cerrarse pronto.
+    // Normal: re-chequeo periódico detecta agente activado desde otra ventana
+    // (o vuelto online) y desbloquea los botones sin recargar.
+    setInterval(recheckAgent, pairMode ? 3000 : 20000);
     loadWorkdayStatus();
     loadLastReport();
     loadPendingMessages();
