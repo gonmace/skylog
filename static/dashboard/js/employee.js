@@ -339,15 +339,17 @@
     // localhost (Private Network Access) queda en false y se ofrece el fallback
     // de abrir Skylog en pestaña propia.
     let localAgentReachable = false;
+    let lastPing = null; // última respuesta de /ping — trae la versión REAL del agente local
 
     async function pingAgent() {
       try {
         const resp = await fetch('http://127.0.0.1:7337/ping', { signal: AbortSignal.timeout(2000) });
-        if (!resp.ok) { localAgentReachable = false; return null; }
+        if (!resp.ok) { localAgentReachable = false; lastPing = null; return null; }
         localAgentReachable = true;
         // Agentes v1 devuelven {"status":"ok"} sin campo paired
-        return await resp.json().catch(() => ({ status: 'ok' }));
-      } catch { localAgentReachable = false; return null; }
+        lastPing = await resp.json().catch(() => ({ status: 'ok' }));
+        return lastPing;
+      } catch { localAgentReachable = false; lastPing = null; return null; }
     }
 
     // Emparejamiento automático: pide un token de un solo uso al servidor y se lo
@@ -390,9 +392,9 @@
       const ping = await pingAgent();
       if (!ping) return false;
       if (!('paired' in ping)) return true; // agente v1: solo sabe responder ok
-      const pairedToMe = ping.paired
-        && (!ping.employee_email || !profileData.email || ping.employee_email === profileData.email);
-      if (pairedToMe) return true;
+      // Comparación estricta de identidad: si el agente quedó vinculado a OTRA
+      // cuenta (aunque este perfil no tenga email), hay que re-emparejarlo.
+      if (ping.paired && (ping.employee_email || '') === (profileData.email || '')) return true;
       // Instalado pero sin identidad (o de otro empleado): emparejarlo ahora
       return await pairLocalAgent();
     }
@@ -438,8 +440,10 @@
         return false;
       };
 
-      const neverInstalled = !profileData?.agent_version && !profileData?.agent_last_seen;
-      const installed  = profileData?.agent_version || '';
+      const neverInstalled = !profileData?.agent_version && !profileData?.agent_last_seen && !localAgentReachable;
+      // Versión real: preferir la que reporta el agente local por ping — el dato del
+      // servidor queda viejo hasta que el agente re-emparejado vuelve a reportarse.
+      const installed  = (localAgentReachable && lastPing?.version) ? lastPing.version : (profileData?.agent_version || '');
       const latest     = profileData?.agent_latest_version || '';
       const minVer     = profileData?.agent_min_version || '';
       // outdated = solo muestra el aviso "Actualizar"; belowMin = bloquea el fichaje.
@@ -495,14 +499,14 @@
       if (offlineBadge) offlineBadge.classList.toggle('hidden', agentIsActive);
 
       // Un solo botón de acción según el estado:
-      //   desactualizado           → Actualizar (descarga el instalador nuevo, que ya
-      //                              desinstala la versión vieja y arranca el agente)
-      //   offline sin update       → Descargar (reinstalar)
-      //   offline + localhost bloqueado por el navegador (embebido) → Vincular agente
-      //                              (abre Skylog en pestaña propia, donde sí se puede)
-      const showUpdate = !!(installed && outdated);
-      const showDownload = !agentIsActive && !showUpdate;
-      const showPair = isEmbedded && !agentIsActive && !showUpdate && !localAgentReachable;
+      //   embebido y sin acceso al agente local → Vincular agente (abre pestaña propia,
+      //     donde el ping/emparejamiento sí corre y muestra el estado real — el dato de
+      //     versión del servidor puede estar viejo, así que no decidimos nada con él)
+      //   desactualizado → Actualizar (el instalador nuevo desinstala el viejo y arranca)
+      //   offline sin update → Descargar (reinstalar)
+      const showPair = isEmbedded && !agentIsActive && !localAgentReachable;
+      const showUpdate = !showPair && !!(installed && outdated);
+      const showDownload = !showPair && !showUpdate && !agentIsActive;
       if (btnUpdate) btnUpdate.classList.toggle('hidden', !showUpdate);
       if (btnDl) btnDl.classList.toggle('hidden', !showDownload || showPair);
       document.getElementById('btn-pair-agent')?.classList.toggle('hidden', !showPair);
