@@ -1,5 +1,7 @@
 (() => {
-  // Chrome bloquea peticiones a 127.0.0.1 desde iframes cross-origin (Private Network Access policy)
+  // Embebido en el iframe de Nextcloud. El acceso a 127.0.0.1 se intenta igual
+  // (el agente responde el preflight de Private Network Access); isEmbedded solo
+  // decide si ofrecer el fallback "Vincular agente" cuando el navegador lo bloquea.
   const isEmbedded = window.self !== window.top;
   const viewAsId   = new URLSearchParams(window.location.search).get('view_as');
 
@@ -333,13 +335,19 @@
       btnStart.classList.remove('hidden');
     }
 
+    // true cuando el último ping a 127.0.0.1 respondió — si el navegador bloquea
+    // localhost (Private Network Access) queda en false y se ofrece el fallback
+    // de abrir Skylog en pestaña propia.
+    let localAgentReachable = false;
+
     async function pingAgent() {
       try {
         const resp = await fetch('http://127.0.0.1:7337/ping', { signal: AbortSignal.timeout(2000) });
-        if (!resp.ok) return null;
+        if (!resp.ok) { localAgentReachable = false; return null; }
+        localAgentReachable = true;
         // Agentes v1 devuelven {"status":"ok"} sin campo paired
         return await resp.json().catch(() => ({ status: 'ok' }));
-      } catch { return null; }
+      } catch { localAgentReachable = false; return null; }
     }
 
     // Emparejamiento automático: pide un token de un solo uso al servidor y se lo
@@ -374,8 +382,11 @@
           if (data.agent_is_active) return true;
         }
       } catch { /* ignorar */ }
-      if (isEmbedded) return false;
 
+      // Intentar hablar con el agente local también dentro del iframe de Nextcloud:
+      // el agente responde el preflight con Access-Control-Allow-Private-Network,
+      // así que en la práctica funciona; si el navegador lo bloquea, el catch
+      // deja localAgentReachable=false y aparece el botón "Vincular agente".
       const ping = await pingAgent();
       if (!ping) return false;
       if (!('paired' in ping)) return true; // agente v1: solo sabe responder ok
@@ -442,10 +453,10 @@
         btnStart.classList.add('hidden');
         btnEnd.classList.add('hidden');
         document.getElementById('agent-version-card')?.classList.add('hidden');
-        // Embebido en Nextcloud no se puede hablar con 127.0.0.1: ofrecer abrir
-        // Skylog en una pestaña propia, donde el emparejamiento sí corre.
+        // Fallback: si el navegador bloquea localhost desde el iframe de Nextcloud,
+        // ofrecer abrir Skylog en una pestaña propia, donde el emparejamiento sí corre.
         const setupPair = document.getElementById('btn-setup-pair');
-        if (setupPair) setupPair.style.display = isEmbedded ? '' : 'none';
+        if (setupPair) setupPair.style.display = (isEmbedded && !localAgentReachable) ? '' : 'none';
         startSetupPolling();
         return;
       }
@@ -481,21 +492,27 @@
 
       card.classList.remove('hidden');
 
-      // Mostrar badge offline solo si está offline
-      if (btnDl) btnDl.classList.toggle('hidden', agentIsActive);
       if (offlineBadge) offlineBadge.classList.toggle('hidden', agentIsActive);
-      // Embebido y offline: el pairing no corre en el iframe → botón para abrir pestaña
-      document.getElementById('btn-pair-agent')?.classList.toggle('hidden', !(isEmbedded && !agentIsActive));
+
+      // Un solo botón de acción según el estado:
+      //   desactualizado           → Actualizar (descarga el instalador nuevo, que ya
+      //                              desinstala la versión vieja y arranca el agente)
+      //   offline sin update       → Descargar (reinstalar)
+      //   offline + localhost bloqueado por el navegador (embebido) → Vincular agente
+      //                              (abre Skylog en pestaña propia, donde sí se puede)
+      const showUpdate = !!(installed && outdated);
+      const showDownload = !agentIsActive && !showUpdate;
+      const showPair = isEmbedded && !agentIsActive && !showUpdate && !localAgentReachable;
+      if (btnUpdate) btnUpdate.classList.toggle('hidden', !showUpdate);
+      if (btnDl) btnDl.classList.toggle('hidden', !showDownload || showPair);
+      document.getElementById('btn-pair-agent')?.classList.toggle('hidden', !showPair);
 
       if (!installed) {
         versionText.textContent = 'No instalado';
-        if (btnUpdate) btnUpdate.classList.add('hidden');
       } else if (outdated) {
         versionText.textContent = `v${installed} → v${latest} disponible`;
-        if (btnUpdate) btnUpdate.classList.remove('hidden');
       } else {
         versionText.textContent = `v${installed}`;
-        if (btnUpdate) btnUpdate.classList.add('hidden');
       }
     }
 
@@ -522,7 +539,7 @@
         const data = await resp.json();
         if (!resp.ok) { alert(data.error || 'Error al iniciar jornada'); btnStart.disabled = false; return; }
         showActive(data.workday_id, data.start_time);
-        if (!isEmbedded) fetch('http://127.0.0.1:7337/trigger', { method: 'POST' }).catch(() => {});
+        fetch('http://127.0.0.1:7337/trigger', { method: 'POST' }).catch(() => {});
       } catch (e) { alert('Error de conexión'); btnStart.disabled = false; }
     }
 
